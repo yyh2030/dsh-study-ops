@@ -52,20 +52,17 @@ T0 来源优先级：DDT 的 T0 日期 → `state.json` 里手动填的日期 �
 
 ## 安装
 
-Host 走 profile 的 patch 行（绝对 file:// URL），client bundle 由 `package.json` 的 `dsh.client` 声明：
+源码在 `D:\dsh-plugins\study-ops`，按 bundle 装进 desktop profile：
 
-```yaml
-- insert:
-    - id: study-ops
-      name: "file:///C:/Users/16787/OneDrive/Desktop/yyh硕士论文/.dsh/study-ops/index.js"
-      config:
-        projectRoot: "C:/Users/16787/OneDrive/Desktop/yyh硕士论文"
-        stateDir: "C:/Users/16787/OneDrive/Desktop/yyh硕士论文/_lab"
-        targetTotal: 150
-        targetPerCell: 32
+```json
+// ~/.dsh/profiles/desktop/package.json
+"bundles": [ ..., "@local/study-ops", ... ],
+"dependencies": { "@local/study-ops": "link:D:/dsh-plugins/study-ops" }
 ```
 
-人口学录入的镜像目录（同一个 `_lab`）：
+并在 `node_modules/@local/study-ops` 建目录联接（junction）指向同一路径。配置写在插件自己的 `cordis.patch.yml`（`projectRoot` / `targetTotal` / `targetPerCell`；`stateDir` 默认 `<projectRoot>/_lab`）。
+
+人口学录入的镜像目录（同一个 `_lab`）在 profile patch 里：
 
 ```yaml
 - id: demographic-coder
@@ -74,7 +71,7 @@ Host 走 profile 的 patch 行（绝对 file:// URL），client bundle 由 `pack
     labDir: "C:/Users/16787/OneDrive/Desktop/yyh硕士论文/_lab"
 ```
 
-改 Host 代码要重启 app；改 client 刷新页面即可。
+改 Host 代码要重启 app；改 client 在「设置 → 插件」里把本插件关掉再打开，然后刷新页面即可。
 
 ## 接口
 

@@ -5,7 +5,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const ROOT = path.resolve(HERE, '..', '..', '..')
+// 插件源码在 D:\dsh-plugins，数据项目仍在论文工作区；可用 STUDY_OPS_PROJECT 覆盖。
+const ROOT = process.env.STUDY_OPS_PROJECT || 'C:/Users/16787/OneDrive/Desktop/yyh硕士论文'
 
 const cfg = {
   projectRoot: ROOT,
