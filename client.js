@@ -127,10 +127,14 @@ window.__ModuleLoader__.load({
 .so-plan-row{display:grid;grid-template-columns:150px 62px minmax(0,1fr) auto;gap:12px;align-items:center;padding:5px 8px;border:1px solid var(--so-line);border-radius:8px;background:var(--so-bg);font-size:12px}
 .so-plan-time{font-variant-numeric:tabular-nums;color:var(--so-text2);font-size:11.5px;white-space:nowrap}
 .so-plan-id{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}
-.so-plan-status{font-size:10.5px;padding:1px 7px;border-radius:999px;border:1px solid var(--so-line);color:var(--so-text2)}
+.so-plan-status{font-size:10.5px;padding:1px 7px;border-radius:999px;border:1px solid var(--so-line);color:var(--so-text2);background:transparent;cursor:pointer;font-family:inherit;line-height:1.6}
+.so-plan-status:hover{background:var(--so-raised)}
+.so-plan-status:disabled{opacity:.6;cursor:default}
 .so-plan-status.is-data{color:var(--so-ok);border-color:color-mix(in oklab,var(--so-ok) 40%,var(--so-line))}
 .so-plan-status.is-tested{color:var(--so-brand);border-color:color-mix(in oklab,var(--so-brand) 40%,var(--so-line))}
 .so-plan-status.is-missed{color:var(--so-bad);border-color:color-mix(in oklab,var(--so-bad) 40%,var(--so-line))}
+.so-plan-status.is-arrived{color:var(--so-ok);border-color:color-mix(in oklab,var(--so-ok) 55%,var(--so-line));background:color-mix(in oklab,var(--so-ok) 10%,transparent);font-weight:600}
+.so-plan-status.is-noshow{color:var(--so-bad);border-color:color-mix(in oklab,var(--so-bad) 55%,var(--so-line));background:color-mix(in oklab,var(--so-bad) 9%,transparent);font-weight:600}
 .so-plan-form{display:flex;gap:6px;flex-wrap:wrap;align-items:center;border-top:1px dashed var(--so-line);padding-top:10px}
 .so-plan-form input{height:28px;padding:0 8px;border:1px solid var(--so-line);border-radius:7px;background:var(--so-bg);color:var(--so-text);font-size:12px;outline:none;min-width:0}
 .so-plan-form input:focus{border-color:var(--so-brand)}
@@ -205,7 +209,14 @@ window.__ModuleLoader__.load({
      * schedule
      * ================================================================ */
 
-    const PLAN_STATUS = { data: '数据已到', tested: '已登记', planned: '未到', missed: '未到' }
+    const PLAN_STATUS = { data: '数据已到', tested: '已登记', planned: '未到', missed: '未到', arrived: '已到', noshow: '缺席' }
+
+    // 点一下循环：已到 → 缺席 → 交回自动判断。
+    function nextAttendance(status) {
+      if (status === 'arrived') return 'noshow'
+      if (status === 'noshow') return ''
+      return 'arrived'
+    }
 
     function addDays(date, n) {
       const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(date || ''))
@@ -214,7 +225,7 @@ window.__ModuleLoader__.load({
       return t.toISOString().slice(0, 10)
     }
 
-    function ScheduleCard({ snap, onAdd, onRemove, busy }) {
+    function ScheduleCard({ snap, onAdd, onRemove, onAttendance, busy }) {
       const tomorrow = addDays(snap.today, 1)
       const [id, setId] = useState('')
       const [date, setDate] = useState(tomorrow)
@@ -269,7 +280,13 @@ window.__ModuleLoader__.load({
                 h('span', { className: 'so-plan-id' }, item.id),
                 h('span', { className: 'so-note', style: { overflow: 'hidden', textOverflow: 'ellipsis' } }, item.note || ''),
                 h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } },
-                  h('span', { className: 'so-plan-status is-' + item.status }, PLAN_STATUS[item.status] || item.status),
+                  h('button', {
+                    type: 'button',
+                    className: 'so-plan-status is-' + item.status,
+                    title: '点一下切换：已到 → 缺席 → 交回自动判断（数据/名单）',
+                    disabled: busy,
+                    onClick: () => onAttendance(item.key, nextAttendance(item.status))
+                  }, PLAN_STATUS[item.status] || item.status),
                   h('button', {
                     type: 'button',
                     className: 'so-btn so-btn-ghost so-btn-sm',
@@ -516,6 +533,15 @@ window.__ModuleLoader__.load({
         }
       }, [])
 
+      const markAttendance = useCallback(async (key, status) => {
+        try {
+          await call('attendance', { key, status })
+          setSnap(await call('status', undefined))
+        } catch (e) {
+          setNotice('更新到场状态失败：' + String(e && e.message ? e.message : e))
+        }
+      }, [])
+
       const dismissAnomaly = useCallback(async key => {
         if (!key) return
         try {
@@ -607,7 +633,7 @@ window.__ModuleLoader__.load({
             )
           ),
 
-          h(ScheduleCard, { snap, onAdd: addPlan, onRemove: removePlan, busy }),
+          h(ScheduleCard, { snap, onAdd: addPlan, onRemove: removePlan, onAttendance: markAttendance, busy }),
 
           h('div', { className: 'so-toolbar' },
             h('button', { type: 'button', className: 'so-chip' + (filter === 'all' ? ' is-active' : ''), onClick: () => setFilter('all') }, '全部 ', h('b', null, snap.subjects.length)),

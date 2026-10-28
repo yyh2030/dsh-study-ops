@@ -22,7 +22,7 @@
 
 - **顶部**：已入组 / 目标、名单登记人数、数据待导入人数、近 7 天、速度、预计收完、人口学完成度、异常计数、随访待办。
 - **四格**：11 / 12 / 21 / 22 各自的 n / 32（名单登记即计入）。
-- **接下来两天的安排**：今天与之后两天的编号、时间段、备注；每行显示「已登记 / 数据已到 / 未到」，可删除；下方表单直接加：编号、日期、开始、结束、备注。
+- **接下来两天的安排**：今天与之后两天的编号、时间段、备注；状态标签「已登记 / 数据已到 / 未到」由数据与名单自动判断，**点一下可手动切换**「已到 → 缺席 → 交回自动」，手动记录写在 `_lab/state.json` 的 `attendance`；可删除；下方表单直接加：编号、日期、开始、结束、备注。
 - **矩阵**：一行一个被试，人口学、T0/T1/T2、IDM1–3、随访状态；点一行展开明细（试次数、超时、RT 中位、LL 比例、文件名、人口学已填项、T0 来源）。
 - **异常**：每条右侧有「忽略」；忽略后收进「查看已忽略」，可单条恢复或全部恢复。忽略只写 `_lab/state.json`，不动数据，也不影响导出报告里的原始判断。
 - **刷新**：右上角按钮绕过 30 秒缓存重扫；切回窗口自动重扫；面板停留时每分钟一次。只有新文件会重新质检。
@@ -83,6 +83,7 @@ T0 来源优先级：DDT 的 T0 日期 → `state.json` 里手动填的日期 �
 - `POST {action:'followup', payload:{id, done}}` — 标记/撤销随访完成
 - `POST {action:'schedule', payload:{op:'add', id, date, start, end, note}}` — 加安排
 - `POST {action:'schedule', payload:{op:'remove', key}}` — 删安排
+- `POST {action:'attendance', payload:{key, status}}` — 手动到场状态：`arrived` / `noshow` / 空（交回自动）
 - `POST {action:'t0', payload:{id, date}}` — 手动指定 T0 日期
 - `POST {action:'dismiss', payload:{key, note}}` — 忽略一条异常
 - `POST {action:'restore', payload:{key}}` — 恢复一条；`key` 为空时恢复全部

@@ -718,16 +718,20 @@ export async function compose(cfg, scanned, state, today) {
   uniqueAnomalies.sort((a, b) => (a.level === b.level ? a.id.localeCompare(b.id) : a.level === 'bad' ? -1 : 1))
   dismissedAnomalies.sort((a, b) => a.id.localeCompare(b.id))
 
+  const attendance = state.attendance || {}
   const byId = new Map(subjects.map(s => [s.id, s]))
   const scheduleOut = schedule.map(item => {
     const subject = byId.get(item.id)
     const diff = dayDiff(today, item.date)
     const phase = diff > 0 ? 'past' : diff === 0 ? 'today' : 'future'
-    let status = 'planned'
-    if (subject && subject.sessions.T0.files > 0) status = 'data'
-    else if (subject && subject.registered) status = 'tested'
-    else if (phase === 'past') status = 'missed'
-    return { ...item, phase, status }
+    let auto = 'planned'
+    if (subject && subject.sessions.T0.files > 0) auto = 'data'
+    else if (subject && subject.registered) auto = 'tested'
+    else if (phase === 'past') auto = 'missed'
+    // 手动点选优先：arrived=已到 / noshow=缺席；没有手动记录时才用自动判断。
+    const manual = attendance[item.key]
+    const status = manual && (manual.status === 'arrived' || manual.status === 'noshow') ? manual.status : auto
+    return { ...item, phase, auto, status, manual: Boolean(manual && manual.status) }
   }).sort((a, b) => a.date.localeCompare(b.date) || clockMinutes(a.start) - clockMinutes(b.start))
 
   const enrolledSubjects = subjects.filter(s => !s.planned)
@@ -832,6 +836,23 @@ export async function restoreAnomaly(cfg, key) {
   const clean = String(key || '').trim()
   if (clean) delete state.dismissed[clean]
   else state.dismissed = {}
+  await writeJson(file, state)
+  return state
+}
+
+/** 手动点选某条安排的到场状态：arrived=已到、noshow=缺席、空=交回自动判断。 */
+export async function setAttendance(cfg, key, status) {
+  const clean = String(key || '').trim()
+  if (!clean) throw new Error('缺少安排 key')
+  const value = String(status == null ? '' : status).trim()
+  if (!['', 'arrived', 'noshow'].includes(value)) throw new Error('未知的到场状态：' + value)
+  const items = await readSchedule(cfg)
+  if (!items.some(item => item.key === clean)) throw new Error('没有这条安排：' + clean)
+  const file = path.join(cfg.stateDir, 'state.json')
+  const state = await loadState(cfg)
+  state.attendance = state.attendance || {}
+  if (value) state.attendance[clean] = { status: value, at: todayString() }
+  else delete state.attendance[clean]
   await writeJson(file, state)
   return state
 }

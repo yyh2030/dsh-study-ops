@@ -6,7 +6,7 @@ import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
-import { addDays, addSchedule, compose, dayDiff, dismissAnomaly, normalizeSession, parseCsv, readDemographics, readRoster, readSchedule, removeScheduleMatch, restoreAnomaly, todayString } from '../scan.js'
+import { addDays, addSchedule, compose, dayDiff, dismissAnomaly, normalizeSession, parseCsv, readDemographics, readRoster, readSchedule, removeScheduleMatch, restoreAnomaly, setAttendance, todayString } from '../scan.js'
 
 test('parseCsv handles BOM, quotes, commas and CRLF', () => {
   const rows = parseCsv('\uFEFFa,b,c\r\n1,"x, y",3\r\n"he said ""hi""",,\r\n')
@@ -261,6 +261,45 @@ test('dismiss and restore persist in state.json', async () => {
     await restoreAnomaly(cfg, '12009|qc|T2')
     const second = JSON.parse(await readFile(path.join(dir, 'state.json'), 'utf8'))
     assert.equal(Object.keys(second.dismissed).length, 0)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('compose: manual attendance overrides the auto status', async () => {
+  const roster = { ok: true, byId: new Map() }
+  const schedule = [{ key: 'k1', id: '11016', date: '2026-10-28', start: '09:00', end: '10:30', note: '' }]
+  const cfg = { targetTotal: 150, targetPerCell: 32 }
+
+  const auto = await compose(cfg, { roster, ddt: [], idm: emptyIdm(), schedule }, { followups: {} }, '2026-10-28')
+  assert.equal(auto.schedule[0].status, 'planned')
+  assert.equal(auto.schedule[0].auto, 'planned')
+  assert.equal(auto.schedule[0].manual, false)
+
+  const arrived = await compose(cfg, { roster, ddt: [], idm: emptyIdm(), schedule }, {
+    followups: {}, attendance: { k1: { status: 'arrived', at: '2026-10-28' } }
+  }, '2026-10-28')
+  assert.equal(arrived.schedule[0].status, 'arrived')
+  assert.equal(arrived.schedule[0].manual, true)
+
+  const noshow = await compose(cfg, { roster, ddt: [], idm: emptyIdm(), schedule }, {
+    followups: {}, attendance: { k1: { status: 'noshow', at: '2026-10-28' } }
+  }, '2026-10-28')
+  assert.equal(noshow.schedule[0].status, 'noshow')
+})
+
+test('setAttendance writes and clears the override', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'study-ops-'))
+  try {
+    const cfg = { stateDir: dir }
+    await addSchedule(cfg, { id: '11016', date: '2026-10-28', start: '09:00', end: '10:30' })
+    const items = await readSchedule(cfg)
+    await setAttendance(cfg, items[0].key, 'arrived')
+    const first = JSON.parse(await readFile(path.join(dir, 'state.json'), 'utf8'))
+    assert.equal(first.attendance[items[0].key].status, 'arrived')
+    await setAttendance(cfg, items[0].key, '')
+    const second = JSON.parse(await readFile(path.join(dir, 'state.json'), 'utf8'))
+    assert.equal(second.attendance && Object.keys(second.attendance).length, 0)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

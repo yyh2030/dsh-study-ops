@@ -12,7 +12,7 @@ import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { addSchedule, buildSnapshot, dismissAnomaly, exportReport, loadState, readRoster, removeSchedule, removeScheduleMatch, restoreAnomaly, saveFollowup, saveT0, todayString } from './scan.js'
+import { addSchedule, buildSnapshot, dismissAnomaly, exportReport, loadState, readRoster, removeSchedule, removeScheduleMatch, restoreAnomaly, saveFollowup, saveT0, setAttendance, todayString } from './scan.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ROUTE = '/api/study-ops'
@@ -215,6 +215,14 @@ export function apply(ctx, config = {}) {
       await saveT0(cfg, id, date)
       cache = null
       return { id, date }
+    },
+    async attendance(payload) {
+      const key = String((payload && payload.key) || '').trim()
+      if (!key) throw new RouteError('invalid', '缺少安排 key')
+      const status = String((payload && payload.status) || '')
+      await setAttendance(cfg, key, status)
+      cache = null
+      return { key, status }
     },
     async dismiss(payload) {
       const key = String((payload && payload.key) || '').trim()
