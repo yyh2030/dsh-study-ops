@@ -2,7 +2,7 @@
 
 装在 DSH Web 界面左侧的「实验运行台」：一眼看出**谁入组了、谁缺哪一次、哪份数据可疑、该找谁随访、明天约了谁**。
 
-只读扫描，不改原始数据。写入只发生在 `_lab/`：`state.json`（随访与 T0 覆盖）、`schedule.json`（安排）、`qc-cache.json`（质检缓存）、`export/`（报告）、`demographics.json`（由人口学录入镜像过来）。
+只读扫描，不改原始数据。写入只发生在 `_lab/`（本机为 `D:/yyh-lab`）：`state.json`（随访与 T0 覆盖）、`schedule.json`（安排）、`qc-cache.json`（质检缓存）、`export/`（报告）、`demographics.json`（由人口学录入镜像过来）。
 
 ## 它读什么
 
@@ -54,7 +54,7 @@ T0 来源优先级：DDT 的 T0 日期 → `state.json` 里手动填的日期 �
 
 源码在 `D:\dsh-plugins\study-ops`，用 `plugin_manager` 的 `install_bundle`（target 为这个目录）装进 desktop profile，不要手改 profile 的 `package.json`：pnpm 锁文件不会自动跟着 `link:` 改，会留下指向旧目录的 junction，重启后插件就「包不可用」。源码目录换过就先 `remove_bundle` 再 `install_bundle`。
 
-配置写在插件自己的 `cordis.patch.yml`（`projectRoot` / `targetTotal` / `targetPerCell`；`stateDir` 默认 `<projectRoot>/_lab`）。
+配置写在插件自己的 `cordis.patch.yml`（`projectRoot` / `targetTotal` / `targetPerCell`；`stateDir` 默认 `<projectRoot>/_lab`，**本机配成 `D:/yyh-lab`**，`_lab` 不放在 OneDrive 里）。
 
 人口学录入的镜像目录（同一个 `_lab`）在 profile patch 里：
 
@@ -62,7 +62,7 @@ T0 来源优先级：DDT 的 T0 日期 → `state.json` 里手动填的日期 �
 - id: demographic-coder
   name: "@local/demographic-coder"
   config:
-    labDir: "C:/Users/16787/OneDrive/Desktop/yyh硕士论文/_lab"
+    labDir: "D:/yyh-lab"
 ```
 
 改 Host 代码要重启 app；改 client 在「设置 → 插件」里把本插件关掉再打开，然后刷新页面即可。
