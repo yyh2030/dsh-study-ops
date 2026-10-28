@@ -52,15 +52,9 @@ T0 来源优先级：DDT 的 T0 日期 → `state.json` 里手动填的日期 �
 
 ## 安装
 
-源码在 `D:\dsh-plugins\study-ops`，按 bundle 装进 desktop profile：
+源码在 `D:\dsh-plugins\study-ops`，用 `plugin_manager` 的 `install_bundle`（target 为这个目录）装进 desktop profile，不要手改 profile 的 `package.json`：pnpm 锁文件不会自动跟着 `link:` 改，会留下指向旧目录的 junction，重启后插件就「包不可用」。源码目录换过就先 `remove_bundle` 再 `install_bundle`。
 
-```json
-// ~/.dsh/profiles/desktop/package.json
-"bundles": [ ..., "@local/study-ops", ... ],
-"dependencies": { "@local/study-ops": "link:D:/dsh-plugins/study-ops" }
-```
-
-并在 `node_modules/@local/study-ops` 建目录联接（junction）指向同一路径。配置写在插件自己的 `cordis.patch.yml`（`projectRoot` / `targetTotal` / `targetPerCell`；`stateDir` 默认 `<projectRoot>/_lab`）。
+配置写在插件自己的 `cordis.patch.yml`（`projectRoot` / `targetTotal` / `targetPerCell`；`stateDir` 默认 `<projectRoot>/_lab`）。
 
 人口学录入的镜像目录（同一个 `_lab`）在 profile patch 里：
 
