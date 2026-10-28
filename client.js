@@ -67,6 +67,7 @@ window.__ModuleLoader__.load({
 .so-cell-code{font-weight:650;font-size:12.5px}
 .so-cell-name{font-size:11px;color:var(--so-text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .so-cell-n{margin-left:auto;font-size:11.5px;color:var(--so-text2);font-variant-numeric:tabular-nums}
+.so-cell-sex{font-size:10.5px;color:var(--so-text2);font-variant-numeric:tabular-nums;white-space:nowrap}
 .so-bar{height:5px;border-radius:999px;background:var(--so-raised);overflow:hidden}
 .so-bar i{display:block;height:100%;border-radius:999px;background:var(--so-brand)}
 .so-toolbar{display:flex;align-items:center;gap:8px;margin:16px 0 8px;flex-wrap:wrap}
@@ -199,7 +200,13 @@ window.__ModuleLoader__.load({
           h('span', { className: 'so-cell-name' }, name),
           h('span', { className: 'so-cell-n' }, cell.n + '/' + cell.target)
         ),
-        h('div', { className: 'so-bar' }, h('i', { style: { width: pct + '%' } }))
+        h('div', { className: 'so-bar' }, h('i', { style: { width: pct + '%' } })),
+        cell.sex && (cell.sex.male || cell.sex.female || cell.sex.unknown)
+          ? h('div', { className: 'so-cell-sex' },
+              '男 ' + cell.sex.male + ' · 女 ' + cell.sex.female +
+              (cell.sex.unknown ? ' · 未知 ' + cell.sex.unknown : '') +
+              (cell.sex.other ? ' · 其他 ' + cell.sex.other : ''))
+          : null
       )
     }
 
@@ -624,6 +631,11 @@ window.__ModuleLoader__.load({
                 h('span', null, '速度 ', h('b', null, e.pacePerDay), ' 人/天'),
                 e.etaDate ? h('span', null, '预计 ', h('b', null, e.etaDate), ' 收完') : null,
                 h('span', null, '人口学 ', h('b', null, (snap.demographics ? snap.demographics.done + '/' + (snap.demographics.done + snap.demographics.partial + snap.demographics.missing) : '—'))),
+                snap.demographics && snap.demographics.sex
+                  ? h('span', null, '男 ', h('b', null, snap.demographics.sex.male), ' · 女 ', h('b', null, snap.demographics.sex.female),
+                      snap.demographics.sex.unknown ? h('span', null, ' · 未知 ', h('b', null, snap.demographics.sex.unknown)) : null,
+                      snap.demographics.sex.other ? h('span', null, ' · 其他 ', h('b', null, snap.demographics.sex.other)) : null)
+                  : null,
                 h('span', null, '异常 ', h('b', null, snap.counts.bad), ' 高 / ', h('b', null, snap.counts.warn), ' 中'),
                 h('span', null, '随访待办 ', h('b', null, snap.counts.followupDue + snap.counts.followupOverdue), ' 人')
               )

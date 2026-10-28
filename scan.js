@@ -468,6 +468,16 @@ export async function removeScheduleMatch(cfg, match = {}) {
  * demographics mirror (written by the demographic-coder plugin)
  * ------------------------------------------------------------------ */
 
+/** 性别归一：男/1/M → male，女/2/F → female，其余非空 → other，空 → ''。 */
+export function normalizeSex(value) {
+  const text = String(value == null ? '' : value).trim()
+  if (!text) return ''
+  const lower = text.toLowerCase()
+  if (['男', '男性', 'm', 'male', '1'].includes(lower)) return 'male'
+  if (['女', '女性', 'f', 'female', '2'].includes(lower)) return 'female'
+  return 'other'
+}
+
 export async function readDemographics(cfg) {
   const raw = await readJson(path.join(cfg.stateDir, 'demographics.json'), null)
   if (!raw || !Array.isArray(raw.rows)) {
@@ -475,6 +485,7 @@ export async function readDemographics(cfg) {
   }
   const columns = Array.isArray(raw.columns) ? raw.columns : []
   const total = columns.length
+  const sexColumn = columns.find(column => column.key === 'sex') || columns.find(column => String(column.label || '').includes('性别'))
   const byId = new Map()
   for (const row of raw.rows) {
     const id = String((row && row.id) || '').trim()
@@ -482,7 +493,7 @@ export async function readDemographics(cfg) {
     const filled = total
       ? columns.filter(column => String(row[column.key] == null ? '' : row[column.key]).trim() !== '').length
       : Object.keys(row).filter(key => key !== 'id' && String(row[key] == null ? '' : row[key]).trim() !== '').length
-    byId.set(id, { filled, total })
+    byId.set(id, { filled, total, sex: sexColumn ? normalizeSex(row[sexColumn.key]) : '' })
   }
   return {
     present: true,
@@ -522,6 +533,8 @@ export async function compose(cfg, scanned, state, today) {
   let registeredCount = 0
   let pendingDataCount = 0
   const cells = {}
+  const cellSex = {}
+  const sexTotals = { male: 0, female: 0, other: 0, unknown: 0 }
   const perCell = cfg.targetPerCell || 32
 
   for (const id of [...ids].sort()) {
@@ -664,7 +677,8 @@ export async function compose(cfg, scanned, state, today) {
     const demoState = {
       present: Boolean(demoEntry),
       filled: demoEntry ? demoEntry.filled : 0,
-      total: demoEntry ? demoEntry.total : (demo && demo.total ? demo.total : 0)
+      total: demoEntry ? demoEntry.total : (demo && demo.total ? demo.total : 0),
+      sex: demoEntry ? (demoEntry.sex || '') : ''
     }
 
     const followup = followupFor(id, t0date, state, today)
@@ -674,6 +688,10 @@ export async function compose(cfg, scanned, state, today) {
       if (registered) registeredCount += 1
       if (pendingData) pendingDataCount += 1
       cells[code] = (cells[code] || 0) + 1
+      const bucket = demoState.sex || 'unknown'
+      cellSex[code] = cellSex[code] || { male: 0, female: 0, other: 0, unknown: 0 }
+      cellSex[code][bucket] += 1
+      sexTotals[bucket] += 1
       if (t0date && dayDiff(today, t0date) <= 7 && dayDiff(today, t0date) >= 0) enrolledLast7 += 1
     }
 
@@ -748,7 +766,11 @@ export async function compose(cfg, scanned, state, today) {
       n: enrolled,
       registered: registeredCount,
       pendingData: pendingDataCount,
-      cells: Object.fromEntries(['11', '12', '21', '22'].map(code => [code, { n: cells[code] || 0, target: perCell }])),
+      cells: Object.fromEntries(['11', '12', '21', '22'].map(code => [code, {
+        n: cells[code] || 0,
+        target: perCell,
+        sex: cellSex[code] || { male: 0, female: 0, other: 0, unknown: 0 }
+      }])),
       last7: enrolledLast7,
       pacePerDay: Math.round(pace * 10) / 10,
       etaDays,
@@ -763,7 +785,8 @@ export async function compose(cfg, scanned, state, today) {
       total: (demo && demo.total) || 0,
       done: demoDone,
       partial: demoPartial,
-      missing: demoMissing
+      missing: demoMissing,
+      sex: sexTotals
     },
     anomalies: uniqueAnomalies,
     dismissed: dismissedAnomalies,
@@ -894,6 +917,13 @@ export async function exportReport(cfg, snapshot) {
   lines.push('|---|---|---|')
   for (const [code, cell] of Object.entries(snapshot.enrollment.cells)) {
     lines.push(`| ${code} | ${cell.n} | ${cell.target} |`)
+  }
+  const sex = snapshot.demographics && snapshot.demographics.sex
+  if (sex && (sex.male || sex.female || sex.unknown || sex.other)) {
+    lines.push('')
+    lines.push(`性别：男 ${sex.male} / 女 ${sex.female}` +
+      (sex.unknown ? ` / 未知 ${sex.unknown}` : '') +
+      (sex.other ? ` / 其他 ${sex.other}` : '') + '。')
   }
   lines.push('')
   lines.push('## 异常')

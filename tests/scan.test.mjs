@@ -6,7 +6,7 @@ import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
-import { addDays, addSchedule, compose, dayDiff, dismissAnomaly, normalizeSession, parseCsv, readDemographics, readRoster, readSchedule, removeScheduleMatch, restoreAnomaly, setAttendance, todayString } from '../scan.js'
+import { addDays, addSchedule, compose, dayDiff, dismissAnomaly, normalizeSex, normalizeSession, parseCsv, readDemographics, readRoster, readSchedule, removeScheduleMatch, restoreAnomaly, setAttendance, todayString } from '../scan.js'
 
 test('parseCsv handles BOM, quotes, commas and CRLF', () => {
   const rows = parseCsv('\uFEFFa,b,c\r\n1,"x, y",3\r\n"he said ""hi""",,\r\n')
@@ -171,15 +171,57 @@ test('compose: demographics completion is counted per enrolled subject', async (
     present: true,
     total: 12,
     updatedAt: '2026-10-27T00:00:00Z',
-    byId: new Map([['11002', { filled: 8, total: 12 }]])
+    byId: new Map([['11002', { filled: 8, total: 12, sex: 'female' }]])
   }
   const snap = await compose({ targetTotal: 150, targetPerCell: 32 }, { roster, ddt, idm: emptyIdm(), demo }, { followups: {} }, '2026-10-27')
   const subject = snap.subjects.find(s => s.id === '11002')
   assert.equal(subject.demo.present, true)
   assert.equal(subject.demo.filled, 8)
+  assert.equal(subject.demo.sex, 'female')
   assert.equal(snap.demographics.done, 0)
   assert.equal(snap.demographics.partial, 1)
   assert.equal(snap.demographics.missing, 0)
+  assert.equal(snap.demographics.sex.female, 1)
+  assert.equal(snap.demographics.sex.male, 0)
+  assert.equal(snap.enrollment.cells['11'].sex.female, 1)
+})
+
+test('normalizeSex maps common spellings', () => {
+  assert.equal(normalizeSex('男'), 'male')
+  assert.equal(normalizeSex('1'), 'male')
+  assert.equal(normalizeSex('M'), 'male')
+  assert.equal(normalizeSex('女'), 'female')
+  assert.equal(normalizeSex('2'), 'female')
+  assert.equal(normalizeSex('female'), 'female')
+  assert.equal(normalizeSex(''), '')
+  assert.equal(normalizeSex('其他'), 'other')
+})
+
+test('compose: sex counts split by cell and by unknown', async () => {
+  const roster = { ok: true, byId: new Map() }
+  const qc = { ok: true, trials: 60, badCells: 0, timeoutShare: 0, fastShare: 0, slowShare: 0 }
+  const ddt = [
+    { id: '11002', session: 'T0', date: '2026-10-20', name: 'a.csv', qc },
+    { id: '11002', session: 'T1', date: '2026-10-20', name: 'b.csv', qc },
+    { id: '11002', session: 'T2', date: '2026-10-20', name: 'c.csv', qc },
+    { id: '21001', session: 'T0', date: '2026-10-20', name: 'd.csv', qc },
+    { id: '21001', session: 'T1', date: '2026-10-20', name: 'e.csv', qc },
+    { id: '21001', session: 'T2', date: '2026-10-20', name: 'f.csv', qc }
+  ]
+  const demo = {
+    present: true,
+    total: 12,
+    byId: new Map([
+      ['11002', { filled: 12, total: 12, sex: 'male' }],
+      ['21001', { filled: 12, total: 12, sex: 'female' }]
+    ])
+  }
+  const snap = await compose({ targetTotal: 150, targetPerCell: 32 }, { roster, ddt, idm: emptyIdm(), demo }, { followups: {} }, '2026-10-27')
+  assert.equal(snap.demographics.sex.male, 1)
+  assert.equal(snap.demographics.sex.female, 1)
+  assert.equal(snap.enrollment.cells['11'].sex.male, 1)
+  assert.equal(snap.enrollment.cells['21'].sex.female, 1)
+  assert.equal(snap.demographics.sex.unknown, 0)
 })
 
 test('schedule round-trip: add, read, remove by id and date', async () => {
