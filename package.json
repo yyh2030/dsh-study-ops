@@ -2,6 +2,7 @@
   "name": "@local/study-ops",
   "version": "0.3.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "配置驱动的研究运行台：参与者、访视任务、异常与预约随访",
   "exports": {

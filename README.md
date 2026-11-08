@@ -126,4 +126,4 @@ dsh plugin --profile <profile> add git+https://github.com/yyh33028-netizen/dsh-s
 
 ## 许可
 
-MIT。仓库里还没有放 `LICENSE` 文件,公开发布前需要补上。
+MIT，见仓库根目录 `LICENSE`（Copyright © 2026 Yuhui YANG）。许可只覆盖插件代码，不覆盖研究数据：被试信息、问卷作答、研究定义与由它们派生的数据仍归研究方所有，不随本许可授权。
