@@ -1,821 +1,529 @@
-/**
- * study-ops — browser half.
- *
- * One panel: enrollment progress, a per-subject matrix of DDT sessions and IDM
- * phases, the QC anomalies, and the follow-up queue. Everything comes from the
- * Host route; the page never reads the data folders itself.
- */
-window.__ModuleLoader__.load({
-  id: '@local/study-ops',
-  factory(require) {
-    const React = require('react')
-    const h = React.createElement
-    const { useState, useEffect, useCallback, useMemo } = React
-
-    const API = '/api/study-ops'
-
-    async function call(action, payload, query) {
-      let url = API + '?action=' + encodeURIComponent(action)
-      if (query) {
-        const qs = new URLSearchParams(query).toString()
-        if (qs) url += '&' + qs
-      }
-      const init = { headers: { 'x-study-ops': '1' } }
-      if (payload !== undefined) {
-        init.method = 'POST'
-        init.headers['content-type'] = 'application/json'
-        init.body = JSON.stringify({ action, payload })
-      }
-      const res = await fetch(url, init)
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok || !json.ok) {
-        throw new Error((json.error && json.error.message) || 'HTTP ' + res.status)
-      }
-      return json.data
-    }
-
-    /* ================================================================ *
-     * styles
-     * ================================================================ */
-
-    const CSS = `
-.so-root{--so-bg:var(--dsw-alias-bg-base,#fff);--so-panel:var(--dsw-alias-bg-layer-1,#f7f7f8);--so-raised:var(--dsw-alias-bg-layer-2,#f1f2f4);--so-line:var(--dsw-alias-border-l1,rgba(0,0,0,.09));--so-line2:var(--dsw-alias-border-l2,rgba(0,0,0,.16));--so-text:var(--dsw-alias-label-primary,#16181d);--so-text2:var(--dsw-alias-label-secondary,#5b6068);--so-brand:var(--dsw-alias-brand-primary,#3f5efb);--so-ok:var(--dsw-alias-state-success-primary,#148a62);--so-warn:var(--dsw-alias-state-warn-primary,#b7791f);--so-bad:var(--dsw-alias-state-error-primary,#c0392b);display:flex;flex-direction:column;height:100%;min-height:0;background:var(--so-bg);color:var(--so-text);font-size:13px;line-height:1.55;overflow:hidden}
+window.__ModuleLoader__.load({id:'@local/study-ops',factory(require){
+  const React=require('react'),h=React.createElement,{useState,useEffect,useCallback}=React
+  const CSS=`
+.so-root{
+  --so-bg:#f5f4ef;--so-sunk:#eeede6;--so-panel:#fbfaf6;--so-raised:#fffefb;--so-alt:#f2f0e9;
+  --so-line:#e3dfd4;--so-line-soft:#eceade;--so-line-strong:#cdc7b7;
+  --so-ink:#24221f;--so-ink-2:#5b564d;--so-ink-3:#726c62;
+  --so-accent:#c46e4f;--so-accent-deep:#a55a3c;--so-accent-darker:#8b4526;--so-accent-soft:#f4e5dd;--so-on-accent:#fdfbf7;
+  --so-ok:#3f6b4f;--so-ok-soft:#e4ebe1;--so-warn:#7d5810;--so-warn-soft:#f3ead3;--so-bad:#9b3a2c;--so-bad-soft:#f4dfd9;--so-info:#3f5a70;--so-info-soft:#e2e8ec;
+  height:100%;overflow:auto;padding:20px 22px 44px;box-sizing:border-box;background:var(--so-bg);color:var(--so-ink);
+  font-family:Cambria,"Noto Serif SC","Source Han Serif SC","Songti SC",STSong,SimSun,serif;font-size:15px;line-height:1.62;letter-spacing:0;font-variant-numeric:tabular-nums;
+}
 .so-root *{box-sizing:border-box}
-.so-top{display:flex;align-items:center;gap:12px;height:56px;padding:0 16px;border-bottom:1px solid var(--so-line);flex:none}
-.so-brand{display:flex;align-items:baseline;gap:8px;min-width:0}
-.so-brand strong{font-size:14px;font-weight:650;white-space:nowrap}
-.so-brand span{font-size:11.5px;color:var(--so-text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46ch}
-.so-top-right{margin-left:auto;display:flex;align-items:center;gap:8px}
-.so-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:30px;padding:0 12px;border-radius:8px;border:1px solid transparent;font-size:12.5px;cursor:pointer;white-space:nowrap;background:transparent;color:var(--so-text)}
-.so-btn:disabled{opacity:.55;cursor:default}
-.so-btn-primary{background:var(--so-brand);color:var(--dsw-alias-bg-base,#fff)}
-.so-btn-ghost{color:var(--so-text2)}
-.so-btn-ghost:hover:not(:disabled){background:var(--so-raised);color:var(--so-text)}
-.so-btn-outline{background:var(--so-bg);border-color:var(--so-line2)}
-.so-btn-outline:hover:not(:disabled){background:var(--so-raised)}
-.so-btn-sm{height:22px;padding:0 8px;font-size:11.5px;border-radius:6px}
-.so-scroll{flex:1;min-height:0;overflow:auto;padding:16px 16px 40px}
-.so-progress{border:1px solid var(--so-line);border-radius:14px;background:var(--so-panel);padding:16px 18px;display:flex;flex-direction:column;gap:14px}
-.so-progress-main{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap}
-.so-big{font-size:30px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
-.so-big small{font-size:13px;font-weight:500;color:var(--so-text2);margin-left:4px;letter-spacing:0}
-.so-meta{display:flex;flex-wrap:wrap;gap:14px;color:var(--so-text2);font-size:12px}
-.so-meta b{color:var(--so-text);font-weight:600;font-variant-numeric:tabular-nums}
-.so-cells{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
-.so-cell{border:1px solid var(--so-line);border-radius:10px;background:var(--so-bg);padding:9px 11px;display:flex;flex-direction:column;gap:6px;min-width:0}
-.so-cell-head{display:flex;align-items:baseline;gap:7px}
-.so-cell-code{font-weight:650;font-size:12.5px}
-.so-cell-name{font-size:11px;color:var(--so-text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.so-cell-n{margin-left:auto;font-size:11.5px;color:var(--so-text2);font-variant-numeric:tabular-nums}
-.so-cell-sex{font-size:10.5px;color:var(--so-text2);font-variant-numeric:tabular-nums;white-space:nowrap}
-.so-bar{height:5px;border-radius:999px;background:var(--so-raised);overflow:hidden}
-.so-bar i{display:block;height:100%;border-radius:999px;background:var(--so-brand)}
-.so-toolbar{display:flex;align-items:center;gap:8px;margin:16px 0 8px;flex-wrap:wrap}
-.so-chip{height:26px;padding:0 11px;border-radius:999px;border:1px solid var(--so-line);background:var(--so-bg);color:var(--so-text2);font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
-.so-chip.is-active{color:var(--so-text);border-color:var(--so-line2);background:var(--so-raised);font-weight:600}
-.so-chip b{font-variant-numeric:tabular-nums;font-weight:600}
-.so-table-wrap{border:1px solid var(--so-line);border-radius:12px;overflow:auto;background:var(--so-bg);max-height:none}
-.so-table{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px;min-width:720px}
-.so-table th{position:sticky;top:0;z-index:1;background:var(--so-bg);text-align:left;padding:9px 10px;border-bottom:1px solid var(--so-line2);font-weight:600;white-space:nowrap;font-size:11.5px;color:var(--so-text2)}
-.so-table td{padding:7px 10px;border-bottom:1px solid var(--so-line);white-space:nowrap;vertical-align:middle}
-.so-table tbody tr{cursor:pointer}
-.so-table tbody tr:hover td{background:color-mix(in oklab,var(--so-raised) 60%,transparent)}
-.so-table tbody tr.is-open td{background:color-mix(in oklab,var(--so-brand) 7%,transparent)}
-.so-id{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;letter-spacing:.2px}
-.so-state{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:6px;font-size:12px;font-weight:700}
-.so-state-ok{color:var(--so-ok);background:color-mix(in oklab,var(--so-ok) 10%,transparent)}
-.so-state-warn{color:var(--so-warn);background:color-mix(in oklab,var(--so-warn) 12%,transparent)}
-.so-state-bad{color:var(--so-bad);background:color-mix(in oklab,var(--so-bad) 10%,transparent)}
-.so-state-missing,.so-state-unknown{color:var(--so-text2);background:var(--so-raised)}
-.so-follow{font-size:11.5px;color:var(--so-text2)}
-.so-follow.is-due{color:var(--so-warn);font-weight:600}
-.so-follow.is-overdue{color:var(--so-bad);font-weight:600}
-.so-scheduled{font-size:10.5px;color:var(--so-brand);border:1px solid color-mix(in oklab,var(--so-brand) 36%,var(--so-line));border-radius:999px;padding:1px 7px;margin-left:6px}
-.so-detail{border:1px solid var(--so-line2);border-radius:12px;background:var(--so-panel);padding:14px 16px;margin-top:12px;display:flex;flex-direction:column;gap:12px}
-.so-detail-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.so-detail-head strong{font-size:14px}
-.so-kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
-.so-kv-item{border:1px solid var(--so-line);border-radius:9px;background:var(--so-bg);padding:8px 10px;display:flex;flex-direction:column;gap:2px}
-.so-kv-item span{font-size:10.5px;color:var(--so-text2)}
-.so-kv-item b{font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums}
-.so-flag{font-size:11.5px;color:var(--so-warn)}
-.so-note{font-size:11.5px;color:var(--so-text2)}
-.so-alert{display:flex;gap:8px;align-items:flex-start;padding:9px 12px;border-radius:9px;margin-bottom:12px;font-size:12px;border:1px solid transparent}
-.so-alert-bad{color:var(--so-bad);background:color-mix(in oklab,var(--so-bad) 8%,transparent);border-color:color-mix(in oklab,var(--so-bad) 22%,transparent)}
-.so-alert-warn{color:var(--so-warn);background:color-mix(in oklab,var(--so-warn) 9%,transparent);border-color:color-mix(in oklab,var(--so-warn) 24%,transparent)}
-.so-alert-ok{color:var(--so-ok);background:color-mix(in oklab,var(--so-ok) 8%,transparent);border-color:color-mix(in oklab,var(--so-ok) 22%,transparent)}
-.so-anomalies{border:1px solid var(--so-line);border-radius:12px;background:var(--so-panel);padding:10px 14px;margin-top:12px}
-.so-anomalies h4{margin:2px 0 6px;font-size:12px;font-weight:600;color:var(--so-text2)}
-.so-anom{display:flex;gap:8px;align-items:flex-start;padding:4px 0;font-size:12px}
-.so-anom button{border:0;background:transparent;color:var(--so-text);cursor:pointer;padding:0;text-align:left;font-size:12px}
-.so-anom button:hover{text-decoration:underline}
-.so-anom-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
-.so-anom-hint{font-size:11px;color:var(--so-text2);line-height:1.55}
-.so-lv{flex:none;font-size:10px;padding:1px 6px;border-radius:999px;border:1px solid currentColor}
-.so-lv-bad{color:var(--so-bad)}
-.so-lv-warn{color:var(--so-warn)}
-.so-empty{border:1px dashed var(--so-line2);border-radius:14px;padding:34px 20px;text-align:center;color:var(--so-text2);display:flex;flex-direction:column;align-items:center;gap:8px}
-.so-empty strong{color:var(--so-text);font-size:14px}
-.so-footer{font-size:11px;color:var(--so-text2);margin-top:14px;display:flex;gap:12px;flex-wrap:wrap}
-.so-contact{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--so-text2)}
-.so-contact b{color:var(--so-text);font-weight:500}
-.so-pending{font-size:10.5px;color:var(--so-warn);border:1px solid color-mix(in oklab,var(--so-warn) 40%,var(--so-line));border-radius:999px;padding:1px 7px;margin-left:6px;white-space:nowrap}
-.so-plan{border:1px solid var(--so-line);border-radius:12px;background:var(--so-panel);padding:12px 14px;margin-top:14px;display:flex;flex-direction:column;gap:10px}
-.so-plan-head{display:flex;align-items:center;gap:10px}
-.so-plan-head h4{margin:0;font-size:12.5px;font-weight:650}
-.so-plan-head span{font-size:11.5px;color:var(--so-text2)}
-.so-plan-list{display:flex;flex-direction:column;gap:4px}
-.so-plan-row{display:grid;grid-template-columns:150px 62px minmax(0,1fr) auto;gap:12px;align-items:center;padding:5px 8px;border:1px solid var(--so-line);border-radius:8px;background:var(--so-bg);font-size:12px}
-.so-plan-time{font-variant-numeric:tabular-nums;color:var(--so-text2);font-size:11.5px;white-space:nowrap}
-.so-plan-id{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}
-.so-plan-status{font-size:10.5px;padding:1px 7px;border-radius:999px;border:1px solid var(--so-line);color:var(--so-text2);background:transparent;cursor:pointer;font-family:inherit;line-height:1.6}
-.so-plan-status:hover{background:var(--so-raised)}
-.so-plan-status:disabled{opacity:.6;cursor:default}
-.so-plan-status.is-data{color:var(--so-ok);border-color:color-mix(in oklab,var(--so-ok) 40%,var(--so-line))}
-.so-plan-status.is-tested{color:var(--so-brand);border-color:color-mix(in oklab,var(--so-brand) 40%,var(--so-line))}
-.so-plan-status.is-missed{color:var(--so-bad);border-color:color-mix(in oklab,var(--so-bad) 40%,var(--so-line))}
-.so-plan-status.is-arrived{color:var(--so-ok);border-color:color-mix(in oklab,var(--so-ok) 55%,var(--so-line));background:color-mix(in oklab,var(--so-ok) 10%,transparent);font-weight:600}
-.so-plan-status.is-noshow{color:var(--so-bad);border-color:color-mix(in oklab,var(--so-bad) 55%,var(--so-line));background:color-mix(in oklab,var(--so-bad) 9%,transparent);font-weight:600}
-.so-plan-form{display:flex;gap:6px;flex-wrap:wrap;align-items:center;border-top:1px dashed var(--so-line);padding-top:10px}
-.so-plan-form input{height:28px;padding:0 8px;border:1px solid var(--so-line);border-radius:7px;background:var(--so-bg);color:var(--so-text);font-size:12px;outline:none;min-width:0}
-.so-plan-form input:focus{border-color:var(--so-brand)}
-.so-plan-form .so-in-id{width:82px}
-.so-plan-form .so-in-date{width:128px}
-.so-plan-form .so-in-time{width:74px}
-.so-plan-form .so-in-note{flex:1;min-width:120px}
-.so-demo-cell{font-size:11.5px;color:var(--so-text2);font-variant-numeric:tabular-nums}
-.so-demo-cell.is-done{color:var(--so-ok)}
-.so-demo-cell.is-partial{color:var(--so-warn)}
-@media (max-width:760px){
-.so-cells{grid-template-columns:repeat(2,minmax(0,1fr))}
-.so-brand span{display:none}
-.so-scroll{padding:12px 10px 32px}
+.so-root button,.so-root input,.so-root select,.so-root textarea{font-family:inherit;color:inherit}
+.so-root ::selection{background:var(--so-accent-soft);color:var(--so-ink)}
+.so-shell{max-width:1280px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+.so-pagehead{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap}
+.so-headtext{min-width:0;flex:1 1 320px}
+.so-pagehead h1{margin:0;font-size:21px;line-height:1.24;font-weight:600;letter-spacing:0}
+.so-pagemeta{margin:5px 0 0;font-size:13.5px;color:var(--so-ink-3)}
+.so-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.so-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:34px;padding:0 13px;border:1px solid transparent;border-radius:5px;background:transparent;font-size:14.5px;font-weight:500;line-height:1;white-space:nowrap;cursor:pointer;transition:background .14s ease,border-color .14s ease,color .14s ease}
+.so-btn-quiet{background:var(--so-raised);border-color:var(--so-line-strong);color:var(--so-ink)}
+.so-btn-quiet:hover:not(:disabled){background:var(--so-alt);border-color:var(--so-ink-3)}
+.so-btn-primary{background:var(--so-accent-deep);border-color:var(--so-accent-deep);color:var(--so-on-accent)}
+.so-btn-primary:hover:not(:disabled){background:var(--so-accent-darker);border-color:var(--so-accent-darker)}
+.so-btn-ghost{color:var(--so-ink-2);border-color:transparent}
+.so-btn-ghost:hover:not(:disabled){background:var(--so-alt);color:var(--so-ink)}
+.so-btn:disabled{background:var(--so-alt);border-color:var(--so-line);color:var(--so-ink-3);cursor:not-allowed}
+.so-root button:focus-visible,.so-root input:focus-visible,.so-root select:focus-visible,.so-root summary:focus-visible{outline:2px solid var(--so-accent-deep);outline-offset:2px}
+.so-cellbtn{border:0;background:transparent;cursor:pointer;font:inherit;padding:0;text-align:left}
+.so-cellbtn:disabled{cursor:default}
+.so-mini{height:30px;padding:0 8px;border:1px solid var(--so-line-strong);border-radius:5px;background:var(--so-raised);color:var(--so-ink);font-size:13px}
+.so-spine{display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:10px 16px;border:1px solid var(--so-line);border-radius:7px;background:var(--so-panel)}
+.so-spine-id{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;min-width:0}
+.so-spine-id b{font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:44ch}
+.so-spine-id span{font-size:12.5px;color:var(--so-ink-3)}
+.so-spine-facts{display:flex;align-items:center;gap:8px 16px;flex-wrap:wrap;margin-left:auto;font-size:12.5px;color:var(--so-ink-2)}
+.so-tag{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border:1px solid transparent;border-radius:4px;font-size:12.5px;line-height:1.2;white-space:nowrap}
+.so-tag-ok{color:var(--so-ok);background:var(--so-ok-soft);border-color:#cad8c8}
+.so-tag-warn{color:var(--so-warn);background:var(--so-warn-soft);border-color:#e1d2ab}
+.so-tag-bad{color:var(--so-bad);background:var(--so-bad-soft);border-color:#e0c1b7}
+.so-tag-info{color:var(--so-info);background:var(--so-info-soft);border-color:#cbd6dd}
+.so-tag-plain{color:var(--so-ink-2);background:var(--so-alt);border-color:var(--so-line)}
+.so-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.so-metric{display:flex;flex-direction:column;gap:4px;padding:14px 16px;border:1px solid var(--so-line);border-radius:7px;background:var(--so-panel);text-align:left;min-width:0}
+.so-metric-name{font-size:13.5px;color:var(--so-ink-2)}
+.so-metric-value{font-size:26px;line-height:1.15;font-weight:600;letter-spacing:-.01em;color:var(--so-ink)}
+.so-metric-value small{font-size:13.5px;font-weight:400;color:var(--so-ink-3);margin-left:4px}
+.so-metric-scope{font-size:12.5px;line-height:1.5;color:var(--so-ink-3)}
+.so-metric[data-tone="bad"] .so-metric-value{color:var(--so-bad)}
+.so-metric[data-tone="warn"] .so-metric-value{color:var(--so-warn)}
+.so-block{border:1px solid var(--so-line);border-radius:7px;background:var(--so-panel);padding:16px 18px 18px;min-width:0}
+.so-blockhead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.so-blockhead h2{margin:0;font-size:17px;line-height:1.3;font-weight:600}
+.so-blocknote{margin:0;font-size:13.5px;color:var(--so-ink-3);flex:1 1 240px}
+.so-groupgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.so-groupcard{padding:12px 14px 13px;border:1px solid var(--so-line);border-radius:7px;background:var(--so-raised);min-width:0}
+.so-groupname{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;font-size:14.5px;font-weight:600}
+.so-groupname span{font-size:12px;font-weight:400;color:var(--so-ink-3)}
+.so-groupcount{margin-top:3px;font-size:23px;line-height:1.15;font-weight:600;letter-spacing:-.01em}
+.so-groupcount small{font-size:13px;font-weight:400;color:var(--so-ink-3);margin-left:3px}
+.so-groupscope{margin-top:3px;font-size:12.5px;color:var(--so-ink-3)}
+.so-groupsex{margin-top:3px;font-size:12.5px;color:var(--so-ink-2);font-variant-numeric:tabular-nums}
+.so-tasklist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:0}
+.so-task{display:grid;grid-template-columns:118px minmax(0,1fr) auto auto;gap:12px;align-items:center;padding:9px 0;border-top:1px solid var(--so-line-soft)}
+.so-task:first-child{border-top:0}
+.so-task-time{display:flex;flex-direction:column;line-height:1.4;color:var(--so-ink-3);font-size:12.5px;white-space:nowrap}
+.so-task-time b{color:var(--so-ink);font-size:13.5px;font-weight:600}
+.so-task-title{font-size:14.5px;color:var(--so-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.so-task-sub{font-size:12.5px;color:var(--so-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px}
+.so-task-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.so-btn-sm{height:28px;padding:0 9px;font-size:13px;border-radius:4px}
+.so-disclosure{margin-top:10px;border-top:1px solid var(--so-line-soft);padding-top:10px}
+.so-disclosure summary{cursor:pointer;font-size:13.5px;color:var(--so-ink-2);outline:none}
+.so-disclosure summary:hover{color:var(--so-ink)}
+.so-form{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;margin-top:12px}
+.so-form-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+.so-field{display:flex;flex-direction:column;gap:4px;min-width:0;font-size:12.5px;color:var(--so-ink-2)}
+.so-field input,.so-field select{height:34px;padding:0 9px;border:1px solid var(--so-line-strong);border-radius:5px;background:var(--so-raised);color:var(--so-ink);font-size:14px;outline:none;min-width:0}
+.so-field input:focus,.so-field select:focus{border-color:var(--so-accent-deep);outline:2px solid var(--so-accent-deep);outline-offset:1px}
+.so-form-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.so-form-error{font-size:12.5px;color:var(--so-bad)}
+.so-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.so-search{width:230px;height:32px;padding:0 9px;border:1px solid var(--so-line-strong);border-radius:5px;background:var(--so-raised);font-size:13.5px;outline:none}
+.so-search:focus{border-color:var(--so-accent-deep);outline:2px solid var(--so-accent-deep);outline-offset:1px}
+.so-filter{display:flex;gap:4px;flex-wrap:wrap}
+.so-filter button{height:30px;padding:0 10px;border:1px solid transparent;border-radius:4px;background:transparent;color:var(--so-ink-2);font-size:13px;cursor:pointer}
+.so-filter button:hover{background:var(--so-alt);color:var(--so-ink)}
+.so-filter button[aria-pressed="true"]{background:var(--so-accent-soft);border-color:#dcb6a4;color:var(--so-accent-darker);font-weight:600}
+.so-count{margin-left:auto;font-size:12.5px;color:var(--so-ink-3);white-space:nowrap}
+.so-table-wrap{overflow:auto;max-height:62vh;border:1px solid var(--so-line);border-radius:5px;background:var(--so-raised)}
+.so-table-wrap:focus-visible{outline:2px solid var(--so-accent-deep);outline-offset:1px}
+.so-table{width:max-content;min-width:100%;border-collapse:separate;border-spacing:0;font-size:13.5px}
+.so-table th,.so-table td{padding:7px 10px;border-bottom:1px solid var(--so-line-soft);border-right:1px solid var(--so-line-soft);text-align:left;vertical-align:middle;background:var(--so-raised);white-space:nowrap}
+.so-table thead th{position:sticky;top:0;z-index:2;background:var(--so-alt);color:var(--so-ink-2);font-size:12.5px;font-weight:600;white-space:nowrap}
+.so-table thead tr:nth-child(2) th{top:35px;z-index:1;font-size:12.5px;font-weight:500;color:var(--so-ink-3)}
+.so-table .so-idcol{position:sticky;left:0;z-index:3;background:var(--so-raised);min-width:132px;box-shadow:1px 0 0 var(--so-line-strong)}
+.so-table thead .so-idcol{z-index:4;background:var(--so-alt)}
+.so-id-main{font-weight:600;font-size:13.5px}
+.so-id-sub{display:block;margin-top:1px;font-size:12px;color:var(--so-ink-3)}
+.so-cell{display:inline-flex;align-items:center;justify-content:center;min-width:72px;height:26px;padding:0 7px;border:1px solid transparent;border-radius:4px;font-size:12.5px;white-space:nowrap}
+.so-cell[data-s="ok"]{background:var(--so-ok-soft);color:var(--so-ok);border-color:#cad8c8}
+.so-cell[data-s="pending"]{background:var(--so-warn-soft);color:var(--so-warn);border-color:#e1d2ab}
+.so-cell[data-s="missing"],.so-cell[data-s="bad"],.so-cell[data-s="conflict"]{background:var(--so-bad-soft);color:var(--so-bad);border-color:#e0c1b7}
+.so-cell[data-s="unknown"]{background:var(--so-alt);color:var(--so-ink-2);border-color:var(--so-line)}
+.so-cell[data-s="not_due"],.so-cell[data-s="not_applicable"]{background:transparent;color:var(--so-ink-3);border:1px dashed var(--so-line-strong)}
+.so-fucol{min-width:210px;white-space:normal !important}
+.so-fu{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12.5px;color:var(--so-ink-2);margin:2px 0}
+.so-fu .so-btn-sm{margin-left:auto}
+.so-empty{border:1px dashed var(--so-line-strong);border-radius:7px;background:var(--so-panel);padding:34px 20px;text-align:center;color:var(--so-ink-3);display:flex;flex-direction:column;align-items:center;gap:8px}
+.so-empty strong{font-size:15px;font-weight:600;color:var(--so-ink)}
+.so-empty span{font-size:13.5px;max-width:52ch;line-height:1.7}
+.so-alert{padding:9px 12px;border:1px solid;border-radius:5px;font-size:13.5px;line-height:1.6;overflow-wrap:anywhere}
+.so-error{color:var(--so-bad);background:var(--so-bad-soft);border-color:#e0c1b7}
+.so-warning{color:var(--so-warn);background:var(--so-warn-soft);border-color:#e1d2ab}
+.so-note{color:var(--so-ink-3);font-size:13px}
+.so-anomlist{list-style:none;margin:0;padding:0}
+.so-anom{display:grid;grid-template-columns:78px minmax(0,1fr) auto;gap:10px;align-items:start;padding:9px 0;border-top:1px solid var(--so-line-soft)}
+.so-anom:first-child{border-top:0}
+.so-anom-msg{min-width:0;font-size:13.5px}
+.so-anom-msg b{display:block;font-weight:600;overflow-wrap:anywhere}
+.so-anom-msg p{margin:2px 0 0;color:var(--so-ink-3);font-size:13px;line-height:1.55;overflow-wrap:anywhere}
+.so-anom-act{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.so-source{display:grid;grid-template-columns:130px minmax(0,1fr);gap:6px 12px;font-size:13px;padding:8px 0 0;border-top:1px solid var(--so-line-soft);min-width:0}
+.so-source:first-child{border-top:0}
+.so-source b{font-weight:600;color:var(--so-ink-2);white-space:nowrap}
+.so-source span{color:var(--so-ink-3);overflow-wrap:anywhere;min-width:0}
+.so-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px;color:var(--so-ink-3);padding-top:2px}
+@media (max-width:1100px){
+.so-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:900px){
+.so-pagehead{gap:12px}
+.so-block{padding:14px 15px 16px}
+.so-task{grid-template-columns:104px minmax(0,1fr) auto;row-gap:6px}
+.so-task-actions{grid-column:2 / -1;justify-content:flex-start}
+}
+@media (max-width:700px){
+.so-root{padding:16px 14px 36px}
+.so-pagehead h1{font-size:20px}
+.so-actions{width:100%}
+.so-actions .so-btn{flex:1 1 auto}
+.so-spine{padding:9px 12px;gap:8px}
+.so-spine-facts{margin-left:0;width:100%;padding-top:6px;border-top:1px solid var(--so-line-soft)}
+.so-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.so-metric{padding:12px 13px}
+.so-metric-value{font-size:23px}
+.so-task{grid-template-columns:minmax(0,1fr);gap:4px}
+.so-task-time{flex-direction:row;gap:8px;align-items:baseline}
+.so-task-actions{grid-column:1;justify-content:flex-start;margin-top:2px}
+.so-toolbar{gap:8px}
+.so-search{width:100%}
+.so-count{margin-left:0}
+.so-anom{grid-template-columns:64px minmax(0,1fr)}
+.so-anom-act{grid-column:2;justify-content:flex-start}
+.so-source{grid-template-columns:1fr}
+}
+@media (max-width:430px){
+.so-root{font-size:15px;padding:12px 10px 30px}
+.so-btn{height:40px;font-size:15px}
+.so-btn-sm{height:36px;font-size:14px}
+.so-field input,.so-field select,.so-search{height:40px;font-size:16px}
+.so-metrics{grid-template-columns:1fr 1fr}
+.so-groupgrid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.so-groupcard{padding:10px 11px 11px}
+.so-metric-name{font-size:13px}
 }
 `
-
-    function insertStyles() {
-      const mark = 'study-ops'
-      if (document.querySelector('style[data-plugin-css="' + mark + '"]')) return () => {}
-      const tag = document.createElement('style')
-      tag.dataset.plugin = mark
-      tag.dataset.pluginCss = mark
-      tag.textContent = CSS
-      document.head.appendChild(tag)
-      return () => tag.remove()
-    }
-
-    /* ================================================================ *
-     * small pieces
-     * ================================================================ */
-
-    const STATE_TEXT = { ok: '✓', warn: '!', bad: '✗', missing: '·', unknown: '—' }
-
-    function StateDot({ state }) {
-      return h('span', { className: 'so-state so-state-' + (state || 'missing'), title: state }, STATE_TEXT[state] || '·')
-    }
-
-    function Btn({ children, onClick, kind, disabled, title }) {
-      return h('button', {
-        type: 'button',
-        className: 'so-btn ' + (kind ? 'so-btn-' + kind : 'so-btn-outline'),
-        onClick,
-        disabled,
-        title
-      }, children)
-    }
-
-    function FollowCell({ follow }) {
-      if (!follow || follow.state === 'unknown') return h('span', { className: 'so-follow' }, '—')
-      if (follow.state === 'done') return h('span', { className: 'so-follow' }, '已完成')
-      if (follow.state === 'scheduled') return h('span', { className: 'so-follow' }, follow.due + ' 到期')
-      if (follow.state === 'due') return h('span', { className: 'so-follow is-due' }, '今天/本周（' + follow.due + '）')
-      return h('span', { className: 'so-follow is-overdue' }, '逾期 ' + Math.abs(follow.days) + ' 天')
-    }
-
-    function CellCard({ code, name, cell }) {
-      const pct = Math.max(0, Math.min(100, Math.round((cell.n / Math.max(1, cell.target)) * 100)))
-      return h('div', { className: 'so-cell' },
-        h('div', { className: 'so-cell-head' },
-          h('span', { className: 'so-cell-code' }, code),
-          h('span', { className: 'so-cell-name' }, name),
-          h('span', { className: 'so-cell-n' }, cell.n + '/' + cell.target)
-        ),
-        h('div', { className: 'so-bar' }, h('i', { style: { width: pct + '%' } })),
-        cell.sex && (cell.sex.male || cell.sex.female || cell.sex.unknown)
-          ? h('div', { className: 'so-cell-sex' },
-              '男 ' + cell.sex.male + ' · 女 ' + cell.sex.female +
-              (cell.sex.unknown ? ' · 未知 ' + cell.sex.unknown : '') +
-              (cell.sex.other ? ' · 其他 ' + cell.sex.other : ''))
-          : null
-      )
-    }
-
-    const CELL_NAMES = { '11': 'MS·EFT', '12': 'MS·ERT', '21': 'DP·EFT', '22': 'DP·ERT' }
-
-    /* ================================================================ *
-     * schedule
-     * ================================================================ */
-
-    const PLAN_STATUS = { data: '数据已到', tested: '已登记', planned: '未到', missed: '未到', arrived: '已到', noshow: '缺席' }
-
-    // 点一下循环：已到 → 缺席 → 交回自动判断。
-    function nextAttendance(status) {
-      if (status === 'arrived') return 'noshow'
-      if (status === 'noshow') return ''
-      return 'arrived'
-    }
-
-    function addDays(date, n) {
-      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(date || ''))
-      if (!m) return ''
-      const t = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) + n * 86400000)
-      return t.toISOString().slice(0, 10)
-    }
-
-    function ScheduleCard({ snap, onAdd, onRemove, onAttendance, busy }) {
-      const tomorrow = addDays(snap.today, 1)
-      const [id, setId] = useState('')
-      const [date, setDate] = useState(tomorrow)
-      const [start, setStart] = useState('')
-      const [end, setEnd] = useState('')
-      const [note, setNote] = useState('')
-      const [error, setError] = useState('')
-
-      const padClock = value => {
-        const m = /^(\d{1,2}):(\d{2})/.exec(String(value || '').trim())
-        return m ? String(m[1]).padStart(2, '0') + ':' + m[2] : ''
-      }
-      const clockMinutes = value => {
-        const m = /^(\d{1,2}):(\d{2})/.exec(String(value || '').trim())
-        return m ? Number(m[1]) * 60 + Number(m[2]) : 24 * 60
-      }
-
-      const items = (snap.schedule || [])
-        .filter(item => item.phase === 'today' || item.phase === 'future')
-        .map(item => ({ ...item, start: padClock(item.start), end: padClock(item.end) }))
-        .sort((a, b) => a.date.localeCompare(b.date) || clockMinutes(a.start) - clockMinutes(b.start))
-
-      const submit = () => {
-        if (!/^\d{5}$/.test(id.trim())) {
-          setError('编号要 5 位数字')
-          return
-        }
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-          setError('日期写成 YYYY-MM-DD')
-          return
-        }
-        setError('')
-        onAdd({ id: id.trim(), date, start: start.trim(), end: end.trim(), note: note.trim() })
-        setId('')
-        setStart('')
-        setEnd('')
-        setNote('')
-      }
-
-      return h('div', { className: 'so-plan' },
-        h('div', { className: 'so-plan-head' },
-          h('h4', null, '接下来两天的安排'),
-          h('span', null, items.length ? items.length + ' 条' : '还没有安排')
-        ),
-        items.length
-          ? h('div', { className: 'so-plan-list' },
-              items.map(item => h('div', { className: 'so-plan-row', key: item.key || item.id + item.date },
-                h('span', { className: 'so-plan-time' },
-                  (item.phase === 'today' ? '今天 ' : item.date.slice(5) + ' ') +
-                  (item.start ? item.start + (item.end ? '–' + item.end : '') : '')
-                ),
-                h('span', { className: 'so-plan-id' }, item.id),
-                h('span', { className: 'so-note', style: { overflow: 'hidden', textOverflow: 'ellipsis' } }, item.note || ''),
-                h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } },
-                  h('button', {
-                    type: 'button',
-                    className: 'so-plan-status is-' + item.status,
-                    title: '点一下切换：已到 → 缺席 → 交回自动判断（数据/名单）',
-                    disabled: busy,
-                    onClick: () => onAttendance(item.key, nextAttendance(item.status))
-                  }, PLAN_STATUS[item.status] || item.status),
-                  h('button', {
-                    type: 'button',
-                    className: 'so-btn so-btn-ghost so-btn-sm',
-                    title: '删除这条安排',
-                    disabled: busy,
-                    onClick: () => onRemove(item.key)
-                  }, '×')
-                )
-              ))
-            )
-          : h('div', { className: 'so-note' }, '把明天的编号、日期、时间段填在下面，明早打开就能对着做。'),
-        h('div', { className: 'so-plan-form' },
-          h('input', { className: 'so-in-id', placeholder: '编号', value: id, onChange: e => setId(e.target.value) }),
-          h('input', { className: 'so-in-date', type: 'date', value: date, onChange: e => setDate(e.target.value) }),
-          h('input', { className: 'so-in-time', placeholder: '10:00', value: start, onChange: e => setStart(e.target.value) }),
-          h('input', { className: 'so-in-time', placeholder: '11:30', value: end, onChange: e => setEnd(e.target.value) }),
-          h('input', {
-            className: 'so-in-note',
-            placeholder: '备注（可不填）',
-            value: note,
-            onChange: e => setNote(e.target.value),
-            onKeyDown: e => { if (e.key === 'Enter') submit() }
-          }),
-          h(Btn, { kind: 'primary', onClick: submit, disabled: busy }, '加入安排'),
-          error ? h('span', { className: 'so-flag' }, error) : null
-        )
-      )
-    }
-
-    /* ================================================================ *
-     * detail
-     * ================================================================ */
-
-    function SessionBlock({ label, session }) {
-      const s = session || {}
-      return h('div', { className: 'so-kv-item' },
-        h('span', null, label),
-        h('b', null,
-          h(StateDot, { state: s.state }),
-          ' ',
-          s.trials == null ? '—' : s.trials + ' 试次'
-        ),
-        s.rtMedian != null ? h('span', { className: 'so-note' }, 'RT 中位 ' + s.rtMedian + ' s' + (s.llRate != null ? '　LL ' + Math.round(s.llRate * 100) + '%' : '')) : null,
-        s.timeouts ? h('span', { className: 'so-note' }, '超时重做 ' + s.timeouts + ' 次') : null
-      )
-    }
-
-    function Detail({ detail, onFollowup, onT0, onClose, busy }) {
-      const s = detail.subject
-      const c = detail.contact || {}
-      const [showContact, setShowContact] = useState(false)
-      const [t0date, setT0date] = useState(s.t0 || '')
-      return h('div', { className: 'so-detail' },
-        h('div', { className: 'so-detail-head' },
-          h('strong', { className: 'so-id' }, s.id),
-          h('span', { className: 'so-note' }, '分组 ' + s.code + '　音频 ' + (s.audio || '—')),
-          h('span', { className: 'so-note' }, 'T0 ' + (s.t0 || '—')),
-          h('div', { style: { marginLeft: 'auto', display: 'flex', gap: '8px' } },
-            s.t0 ? h(Btn, {
-              kind: s.followup.state === 'done' ? 'outline' : 'primary',
-              disabled: busy,
-              onClick: () => onFollowup(s.id, s.followup.state !== 'done')
-            }, s.followup.state === 'done' ? '撤销随访完成' : '标记随访完成') : null,
-            h(Btn, { kind: 'ghost', onClick: onClose }, '收起')
-          )
-        ),
-        h('div', { className: 'so-contact' },
-          h('span', null, '联系方式'),
-          showContact
-            ? h('b', null, (c.name || '—') + (c.phone ? '　' + c.phone : ''))
-            : h('span', null, '已隐藏'),
-          h('button', {
-            type: 'button',
-            className: 'so-btn so-btn-ghost so-btn-sm',
-            onClick: () => setShowContact(v => !v)
-          }, showContact ? '隐藏' : '显示')
-        ),
-        h('div', { className: 'so-contact' },
-          h('span', null, '人口学'),
-          h('b', null, s.demo && s.demo.present ? s.demo.filled + ' / ' + s.demo.total + ' 项' : '还没有记录'),
-          s.t0source && s.t0source !== 'data'
-            ? h('span', null, '　T0 来自' + (s.t0source === 'schedule' ? '安排日期' : '手动填写'))
-            : null
-        ),
-        h('div', { className: 'so-contact' },
-          h('span', null, 'T0 日期'),
-          h('input', {
-            type: 'date',
-            style: { height: '26px', padding: '0 6px', border: '1px solid var(--so-line)', borderRadius: '7px', background: 'var(--so-bg)', color: 'var(--so-text)', fontSize: '12px' },
-            value: t0date,
-            onChange: e => setT0date(e.target.value)
-          }),
-          h(Btn, { kind: 'outline', disabled: busy || !t0date, onClick: () => onT0(s.id, t0date) }, '保存 T0'),
-          h('span', { className: 'so-note' }, '数据到了会以数据里的日期为准')
-        ),
-        h('div', { className: 'so-kv' },
-          h(SessionBlock, { label: 'DDT · T0', session: s.sessions.T0 }),
-          h(SessionBlock, { label: 'DDT · T1', session: s.sessions.T1 }),
-          h(SessionBlock, { label: 'DDT · T2', session: s.sessions.T2 }),
-          h(SessionBlock, { label: 'IDM · 1', session: s.idm.phase1 }),
-          h(SessionBlock, { label: 'IDM · 2', session: s.idm.phase2 }),
-          h(SessionBlock, { label: 'IDM · 3', session: s.idm.phase3 })
-        ),
-        s.flags && s.flags.length
-          ? h('div', null, s.flags.map((f, i) => h('div', { className: 'so-flag', key: i }, '· ' + f)))
-          : h('div', { className: 'so-note' }, '这一行没有硬性异常；随访状态看上表。')
-      )
-    }
-
-    /* ================================================================ *
-     * panel
-     * ================================================================ */
-
-    function hasIssue(s) {
-      if (s.planned) return false
-      if (s.flags && s.flags.length) return true
-      return ['T0', 'T1', 'T2'].some(label => s.sessions[label].state === 'warn' || s.sessions[label].state === 'bad')
-    }
-
-    function Panel() {
-      const [snap, setSnap] = useState(null)
-      const [error, setError] = useState('')
-      const [loading, setLoading] = useState(false)
-      const [detail, setDetail] = useState(null)
-      const [detailError, setDetailError] = useState('')
-      const [filter, setFilter] = useState('all')
-      const [notice, setNotice] = useState('')
-      const [busy, setBusy] = useState(false)
-      const [showDismissed, setShowDismissed] = useState(false)
-
-      const load = useCallback(async (force, silent) => {
-        if (!silent) setLoading(true)
-        setError('')
-        try {
-          const data = await call(force ? 'refresh' : 'status', force ? {} : undefined)
-          setSnap(data)
-        } catch (e) {
-          setError(String(e && e.message ? e.message : e))
-        } finally {
-          if (!silent) setLoading(false)
-        }
-      }, [])
-
-      useEffect(() => { load(false) }, [load])
-
-      // 改完名单、导入数据后，切回窗口会自动重扫；面板停留时每分钟也扫一次。
-      useEffect(() => {
-        const refresh = () => {
-          if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
-          load(true, true)
-        }
-        window.addEventListener('focus', refresh)
-        document.addEventListener('visibilitychange', refresh)
-        const timer = setInterval(refresh, 60000)
-        return () => {
-          window.removeEventListener('focus', refresh)
-          document.removeEventListener('visibilitychange', refresh)
-          clearInterval(timer)
-        }
-      }, [load])
-
-      const openSubject = useCallback(async (id) => {
-        setDetailError('')
-        try {
-          const data = await call('subject', undefined, { id })
-          setDetail(data)
-        } catch (e) {
-          setDetailError(String(e && e.message ? e.message : e))
-        }
-      }, [])
-
-      const markFollowup = useCallback(async (id, done) => {
-        setBusy(true)
-        try {
-          await call('followup', { id, done })
-          const data = await call('status', undefined)
-          setSnap(data)
-          if (detail && detail.subject.id === id) {
-            const fresh = await call('subject', undefined, { id })
-            setDetail(fresh)
-          }
-          setNotice(done ? id + ' 已标记随访完成' : id + ' 已撤销随访完成')
-        } catch (e) {
-          setNotice('操作失败：' + String(e && e.message ? e.message : e))
-        } finally {
-          setBusy(false)
-        }
-      }, [detail])
-
-      const saveT0 = useCallback(async (id, date) => {
-        setBusy(true)
-        try {
-          await call('t0', { id, date })
-          setSnap(await call('status', undefined))
-          setDetail(await call('subject', undefined, { id }))
-          setNotice(id + ' 的 T0 记为 ' + date)
-        } catch (e) {
-          setNotice('T0 保存失败：' + String(e && e.message ? e.message : e))
-        } finally {
-          setBusy(false)
-        }
-      }, [])
-
-      const exportReport = useCallback(async () => {
-        setBusy(true)
-        try {
-          const data = await call('export', {})
-          setNotice('已导出：' + data.files.map(f => f.name).join('、'))
-        } catch (e) {
-          setNotice('导出失败：' + String(e && e.message ? e.message : e))
-        } finally {
-          setBusy(false)
-        }
-      }, [])
-
-      const openExportFolder = useCallback(async () => {
-        try {
-          await call('reveal', {})
-        } catch {}
-      }, [])
-
-      const addPlan = useCallback(async payload => {
-        setBusy(true)
-        try {
-          await call('schedule', { op: 'add', ...payload })
-          setSnap(await call('status', undefined))
-          setNotice(payload.id + ' 已加入 ' + payload.date)
-        } catch (e) {
-          setNotice('添加失败：' + String(e && e.message ? e.message : e))
-        } finally {
-          setBusy(false)
-        }
-      }, [])
-
-      const removePlan = useCallback(async key => {
-        setBusy(true)
-        try {
-          await call('schedule', { op: 'remove', key })
-          setSnap(await call('status', undefined))
-        } catch (e) {
-          setNotice('删除失败：' + String(e && e.message ? e.message : e))
-        } finally {
-          setBusy(false)
-        }
-      }, [])
-
-      const markAttendance = useCallback(async (key, status) => {
-        try {
-          await call('attendance', { key, status })
-          setSnap(await call('status', undefined))
-        } catch (e) {
-          setNotice('更新到场状态失败：' + String(e && e.message ? e.message : e))
-        }
-      }, [])
-
-      const dismissAnomaly = useCallback(async key => {
-        if (!key) return
-        try {
-          await call('dismiss', { key })
-          setSnap(await call('status', undefined))
-          setNotice('已忽略这条异常；在「查看已忽略」里可以恢复')
-        } catch (e) {
-          setNotice('忽略失败：' + String(e && e.message ? e.message : e))
-        }
-      }, [])
-
-      const restoreAnomaly = useCallback(async key => {
-        try {
-          await call('restore', { key: key || '' })
-          setSnap(await call('status', undefined))
-          setNotice(key ? '已恢复这条异常' : '已恢复全部被忽略的异常')
-        } catch (e) {
-          setNotice('恢复失败：' + String(e && e.message ? e.message : e))
-        }
-      }, [])
-
-      const subjects = useMemo(() => {
-        if (!snap) return []
-        const list = snap.subjects.slice()
-        if (filter === 'issues') return list.filter(hasIssue)
-        if (filter === 'followup') {
-          return list.filter(s => s.followup.state === 'due' || s.followup.state === 'overdue')
-        }
-        return list
-      }, [snap, filter])
-
-      const issueCount = useMemo(() => (snap ? snap.subjects.filter(hasIssue).length : 0), [snap])
-
-      if (!snap) {
-        return h('div', { className: 'so-root' },
-          h('div', { className: 'so-top' },
-            h('div', { className: 'so-brand' }, h('strong', null, '实验运行台')),
-            h('div', { className: 'so-top-right' }, h(Btn, { onClick: () => load(true), disabled: loading }, loading ? '扫描中…' : '重新扫描'))
-          ),
-          h('div', { className: 'so-scroll' },
-            error
-              ? h('div', { className: 'so-alert so-alert-bad' }, error)
-              : h('div', { className: 'so-empty' }, h('strong', null, loading ? '正在扫描数据目录…' : '还没有数据'), h('p', null, '首次扫描会把 36 份 DDT 与 IDM 文件过一遍，之后走缓存。'))
-          )
-        )
-      }
-
-      const e = snap.enrollment
-      const cells = e.cells || {}
-
-      return h('div', { className: 'so-root' },
-        h('div', { className: 'so-top' },
-          h('div', { className: 'so-brand' },
-            h('strong', null, '实验运行台'),
-            h('span', null, snap.project)
-          ),
-          h('div', { className: 'so-top-right' },
-            h('span', { className: 'so-note', title: '每次扫描都重新读名单和数据目录；只有新文件才重新质检' },
-              '更新于 ' + new Date(snap.generatedAt).toLocaleTimeString('zh-CN', { hour12: false })),
-            h(Btn, { kind: 'ghost', onClick: () => load(true), disabled: loading }, loading ? '扫描中…' : '刷新'),
-            h(Btn, { kind: 'outline', onClick: exportReport, disabled: busy }, '导出报告')
-          )
-        ),
-        h('div', { className: 'so-scroll' },
-          error ? h('div', { className: 'so-alert so-alert-bad' }, error) : null,
-          notice ? h('div', { className: 'so-alert so-alert-ok' }, notice, h('button', {
-            type: 'button', className: 'so-btn so-btn-ghost', style: { marginLeft: 'auto', height: '20px' }, onClick: () => setNotice('')
-          }, '×')) : null,
-          snap.qc && snap.qc.ok === false
-            ? h('div', { className: 'so-alert so-alert-warn' }, '逐试次质检不可用：' + snap.qc.error + '（当前只按文件是否齐全判断）')
-            : null,
-
-          h('div', { className: 'so-progress' },
-            h('div', { className: 'so-progress-main' },
-              h('div', { className: 'so-big' }, e.n, h('small', null, '/ ' + snap.target.total)),
-              h('div', { className: 'so-meta' },
-                h('span', null, '名单登记 ', h('b', null, e.registered == null ? e.n : e.registered), ' 人'),
-                e.pendingData ? h('span', null, '数据待导入 ', h('b', null, e.pendingData), ' 人') : null,
-                h('span', null, '近 7 天 ', h('b', null, e.last7), ' 人'),
-                h('span', null, '速度 ', h('b', null, e.pacePerDay), ' 人/天'),
-                e.etaDate ? h('span', null, '预计 ', h('b', null, e.etaDate), ' 收完') : null,
-                h('span', null, '人口学 ', h('b', null, (snap.demographics ? snap.demographics.done + '/' + (snap.demographics.done + snap.demographics.partial + snap.demographics.missing) : '—'))),
-                snap.demographics && snap.demographics.sex
-                  ? h('span', null, '男 ', h('b', null, snap.demographics.sex.male), ' · 女 ', h('b', null, snap.demographics.sex.female),
-                      snap.demographics.sex.unknown ? h('span', null, ' · 未知 ', h('b', null, snap.demographics.sex.unknown)) : null,
-                      snap.demographics.sex.other ? h('span', null, ' · 其他 ', h('b', null, snap.demographics.sex.other)) : null)
-                  : null,
-                h('span', null, '异常 ', h('b', null, snap.counts.bad), ' 高 / ', h('b', null, snap.counts.warn), ' 中'),
-                h('span', null, '随访待办 ', h('b', null, snap.counts.followupDue + snap.counts.followupOverdue), ' 人')
-              )
-            ),
-            h('div', { className: 'so-cells' },
-              ['11', '12', '21', '22'].map(code => h(CellCard, { key: code, code, name: CELL_NAMES[code], cell: cells[code] || { n: 0, target: 32 } }))
-            )
-          ),
-
-          h(ScheduleCard, { snap, onAdd: addPlan, onRemove: removePlan, onAttendance: markAttendance, busy }),
-
-          h('div', { className: 'so-toolbar' },
-            h('button', { type: 'button', className: 'so-chip' + (filter === 'all' ? ' is-active' : ''), onClick: () => setFilter('all') }, '全部 ', h('b', null, snap.subjects.length)),
-            h('button', { type: 'button', className: 'so-chip' + (filter === 'issues' ? ' is-active' : ''), onClick: () => setFilter('issues') }, '有异常 ', h('b', null, issueCount)),
-            h('button', { type: 'button', className: 'so-chip' + (filter === 'followup' ? ' is-active' : ''), onClick: () => setFilter('followup') }, '待随访 ', h('b', null, snap.counts.followupDue + snap.counts.followupOverdue))
-          ),
-
-          h('div', { className: 'so-table-wrap' },
-            h('table', { className: 'so-table' },
-              h('thead', null,
-                h('tr', null,
-                  h('th', null, '编号'), h('th', null, '分组'), h('th', null, '人口学'),
-                  h('th', null, 'T0'), h('th', null, 'T1'), h('th', null, 'T2'),
-                  h('th', null, 'IDM1'), h('th', null, 'IDM2'), h('th', null, 'IDM3'),
-                  h('th', null, '随访')
-                )
-              ),
-              h('tbody', null,
-                subjects.map(s => h('tr', {
-                  key: s.id,
-                  className: detail && detail.subject.id === s.id ? 'is-open' : '',
-                  onClick: () => openSubject(s.id)
-                },
-                  h('td', null,
-                    h('span', { className: 'so-id' }, s.id),
-                    s.pendingData ? h('span', { className: 'so-pending' }, '数据待导入') : null,
-                    s.planned ? h('span', { className: 'so-scheduled' }, '待施测') : null
-                  ),
-                  h('td', null, s.code),
-                  h('td', null, s.demo && s.demo.present
-                    ? h('span', {
-                        className: 'so-demo-cell' + (s.demo.filled >= s.demo.total ? ' is-done' : s.demo.filled > 0 ? ' is-partial' : ''),
-                        title: '人口学 ' + s.demo.filled + ' / ' + s.demo.total
-                      }, s.demo.filled + '/' + s.demo.total)
-                    : h('span', { className: 'so-demo-cell', title: '还没有这位被试的人口学记录' }, '—')),
-                  h('td', null, h(StateDot, { state: s.sessions.T0.state })),
-                  h('td', null, h(StateDot, { state: s.sessions.T1.state })),
-                  h('td', null, h(StateDot, { state: s.sessions.T2.state })),
-                  h('td', null, h(StateDot, { state: s.idm.phase1.state })),
-                  h('td', null, h(StateDot, { state: s.idm.phase2.state })),
-                  h('td', null, h(StateDot, { state: s.idm.phase3.state })),
-                  h('td', null, h(FollowCell, { follow: s.followup }))
-                ))
-              )
-            )
-          ),
-
-          detailError ? h('div', { className: 'so-alert so-alert-warn', style: { marginTop: '12px' } }, detailError) : null,
-          detail ? h(Detail, { key: detail.subject.id, detail, onFollowup: markFollowup, onT0: saveT0, onClose: () => setDetail(null), busy }) : null,
-
-          h('div', { className: 'so-anomalies' },
-            h('h4', null, '异常 ' + snap.anomalies.length + ' 条' +
-              (snap.dismissed && snap.dismissed.length ? '　已忽略 ' + snap.dismissed.length + ' 条' : '')),
-            snap.anomalies.length
-              ? snap.anomalies.slice(0, 10).map((a, i) => h('div', { className: 'so-anom', key: a.key || i },
-                  h('span', { className: 'so-lv ' + (a.level === 'bad' ? 'so-lv-bad' : 'so-lv-warn') }, a.level === 'bad' ? '高' : '中'),
-                  h('div', { className: 'so-anom-body' },
-                    h('button', { type: 'button', onClick: () => openSubject(a.id) }, a.id + '：' + a.text),
-                    a.hint ? h('div', { className: 'so-anom-hint' }, a.hint) : null
-                  ),
-                  h('button', {
-                    type: 'button',
-                    className: 'so-btn so-btn-ghost so-btn-sm',
-                    title: '这条看着没问题，收起来（随时能恢复）',
-                    onClick: () => dismissAnomaly(a.key)
-                  }, '忽略')
-                ))
-              : h('div', { className: 'so-note' }, '没有需要处理的异常。'),
-            snap.anomalies.length > 10 ? h('div', { className: 'so-note' }, '还有 ' + (snap.anomalies.length - 10) + ' 条，导出报告里能看到全部。') : null,
-            snap.dismissed && snap.dismissed.length
-              ? h('div', { style: { marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed var(--so-line)' } },
-                  h('button', {
-                    type: 'button',
-                    className: 'so-btn so-btn-ghost so-btn-sm',
-                    onClick: () => setShowDismissed(v => !v)
-                  }, (showDismissed ? '收起' : '查看') + '已忽略的 ' + snap.dismissed.length + ' 条'),
-                  showDismissed
-                    ? h('div', null,
-                        snap.dismissed.map(d => h('div', { className: 'so-anom', key: d.key },
-                          h('span', { className: 'so-lv' }, '忽略'),
-                          h('span', { className: 'so-note' }, d.id + '：' + d.text + (d.note ? '（' + d.note + '）' : '')),
-                          h('button', {
-                            type: 'button',
-                            className: 'so-btn so-btn-ghost so-btn-sm',
-                            style: { marginLeft: 'auto' },
-                            onClick: () => restoreAnomaly(d.key)
-                          }, '恢复')
-                        )),
-                        h('button', {
-                          type: 'button',
-                          className: 'so-btn so-btn-ghost so-btn-sm',
-                          onClick: () => restoreAnomaly('')
-                        }, '全部恢复')
-                      )
-                    : null
-                )
-              : null
-          ),
-
-          h('div', { className: 'so-footer' },
-            h('span', null, '扫描于 ' + new Date(snap.generatedAt).toLocaleString('zh-CN')),
-            h('span', null, 'DDT ' + (snap.files ? snap.files.ddt : 0) + ' 份 · IDM ' + (snap.files ? snap.files.idm : 0) + ' 名'),
-            h('span', null, snap.qc && snap.qc.ok ? ('质检：新解析 ' + snap.qc.parsed + '，缓存 ' + snap.qc.cached) : '质检：未启用'),
-            h('button', { type: 'button', className: 'so-btn so-btn-ghost', style: { height: '18px', padding: '0 6px' }, onClick: openExportFolder }, '打开导出文件夹')
-          )
-        )
-      )
-    }
-
-    /* ================================================================ *
-     * icon + mounting
-     * ================================================================ */
-
-    function Icon({ size, active }) {
-      const stroke = active ? 'currentColor' : 'currentColor'
-      return h('svg', { width: size || 18, height: size || 18, viewBox: '0 0 24 24', fill: 'none', stroke, strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
-        h('rect', { x: 4, y: 3.5, width: 16, height: 17, rx: 3 }),
-        h('path', { d: 'M8 8.5h8M8 12h5M8 15.5h3' }),
-        h('path', { d: 'M14.5 16.2l1.6 1.6 3-3.2' })
-      )
-    }
-
-    /**
-     * 最外层护栏：面板组件在真实页面里抛错时，把错误显示在面板上，
-     * 而不是让槽位把整个面板撤掉（那会变成一片空白，且看不到原因）。
-     */
-    class Guard extends React.Component {
-      constructor(props) {
-        super(props)
-        this.state = { error: null }
-      }
-      static getDerivedStateFromError(error) {
-        return { error }
-      }
-      componentDidCatch(error) {
-        console.error('[study-ops] panel crashed:', error)
-      }
-      render() {
-        if (this.state.error) {
-          const text = String((this.state.error && (this.state.error.stack || this.state.error.message)) || this.state.error)
-          return h('div', {
-            style: {
-              padding: '18px',
-              fontFamily: 'ui-monospace,Consolas,monospace',
-              fontSize: '12px',
-              lineHeight: 1.6,
-              whiteSpace: 'pre-wrap',
-              color: '#b00020',
-              overflow: 'auto',
-              height: '100%',
-              boxSizing: 'border-box'
-            }
-          }, '实验运行台渲染失败：\n\n' + text + '\n\n（把这段发给我即可定位）')
-        }
-        return this.props.children
-      }
-    }
-
-    return {
-      inject: ['slots'],
-      apply(ctx) {
-        ctx.effect(() => insertStyles(), 'study-ops: styles')
-        ctx.slots.inject('sidebar.panellist', () =>
-          ctx.slots.register(
-            { name: 'sidebar.panellist', id: 'study-ops', order: 31, label: '实验运行台' },
-            props => h(Icon, { size: (props && props.size) || 18, active: Boolean(props && props.active) })
-          )
-        )
-        ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'study-ops' }, () => h(Guard, null, h(Panel))))
-      }
-    }
+  const PAGE_KEY='dsh:research:page:v2'
+  function randomPageId(){const bytes=new Uint8Array(12);if(window.crypto&&window.crypto.getRandomValues)window.crypto.getRandomValues(bytes);else for(let i=0;i<bytes.length;i++)bytes[i]=Math.floor(Math.random()*256);return Array.from(bytes,v=>v.toString(16).padStart(2,'0')).join('')}
+  function pageId(){try{const own=sessionStorage.getItem(PAGE_KEY);if(own)return own;let shared=localStorage.getItem(PAGE_KEY+':default');if(!shared){shared=randomPageId();localStorage.setItem(PAGE_KEY+':default',shared)}return shared}catch{return 'pagemem00000001'}}
+  function newPage(){const fresh=randomPageId();try{sessionStorage.setItem(PAGE_KEY,fresh);localStorage.setItem(PAGE_KEY+':default',fresh)}catch{/* 隐私模式 */}return fresh}
+  /** 数据视图：both=并列（缺省）、core=核心优先、legacy=只看旧文件。 */
+  function readView(){try{const saved=localStorage.getItem('dsh:research:run-view:v1');return ['both','core','legacy'].includes(saved)?saved:'both'}catch{return 'both'}}
+  let activeBinding=null
+  async function call(action,payload){
+    const headers={'x-study-ops':'1','x-dsh-page':pageId()}
+    const url='/api/study-ops'+(payload===undefined?'?action='+encodeURIComponent(action):'')
+    if(payload!==undefined)headers['content-type']='application/json'
+    const res=await fetch(url,{method:payload===undefined?'GET':'POST',headers,...(payload===undefined?{}:{body:JSON.stringify({action,payload:{...payload,pageId:pageId(),binding:activeBinding}})})})
+    const data=await res.json()
+    if(!res.ok||!data.ok){const failure=new Error(data.error?.message||'请求失败');failure.code=data.error?.code;failure.details=data.error?.details;throw failure}
+    if(data.data&&data.data.binding&&data.data.binding.token)activeBinding=data.data.binding.token
+    return data.data
   }
-})
+  const sourceLabel={page:'页面连接',session:'会话连接',workspace:'工作区记录',project:'工作区项目配置',legacy:'旧配置来源',candidate:'候选研究',empty:'空研究',explicit:'已连接'}
+  const labels={ok:'通过',missing:'缺记录',unknown:'未知',pending:'待完成',bad:'失败',conflict:'待选择',not_applicable:'不适用',not_due:'待到期'}
+  const followupStates={overdue:'已逾期',due:'到期',done:'已完成',scheduled:'未到期',unknown:'未确定'}
+  const followupLabel=(follow,visits)=>follow.label||visits.find(visit=>visit.id===(follow.visitId||follow.id))?.label||'随访'
+  const groupName=name=>name===''||name==null?'未分组':name
+  const fmtTime=value=>{try{return new Date(value).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}catch{return String(value||'')}}
+  function ScheduleForm({snap,onSave,busy}){
+    const initial={id:'',date:snap.today,visitId:snap.visits[0]?.id||'',start:'',end:'',resource:'',note:''}
+    const [draft,setDraft]=useState(initial),[error,setError]=useState(''),[saving,setSaving]=useState(false)
+    const field=(name,label,type='text')=>h('label',{className:'so-field'},h('span',null,label),h('input',{name,'aria-label':label,placeholder:label,type,value:draft[name],onChange:e=>setDraft({...draft,[name]:e.target.value})}))
+    async function submit(e){e.preventDefault();if(saving||busy)return;setSaving(true);setError('');try{await onSave(draft);setDraft({...draft,id:'',start:'',end:'',resource:'',note:''})}catch(e){setError(e.message)}finally{setSaving(false)}}
+    return h('form',{className:'so-form',onSubmit:submit},
+      h('div',{className:'so-form-fields'},
+        field('id','参与者编号'),
+        h('label',{className:'so-field'},h('span',null,'访视'),h('select',{'aria-label':'访视',value:draft.visitId,onChange:e=>setDraft({...draft,visitId:e.target.value})},snap.visits.map(v=>h('option',{key:v.id,value:v.id},v.label||v.id)))),
+        field('date','预约日期','date'),field('start','开始 HH:mm'),field('end','结束 HH:mm'),field('resource','资源或地点'),field('note','备注')),
+      h('div',{className:'so-form-actions'},h('button',{className:'so-btn so-btn-primary',disabled:busy||saving||!snap.visits.length,type:'submit'},saving?'保存中…':'加入安排'),error?h('span',{className:'so-form-error',role:'alert'},error):null))
+  }
+  function ConnectBar({snap,busy,onDone}){
+    const [path,setPath]=useState((snap&&snap.study&&snap.study.path)||'')
+    const [name,setName]=useState('')
+    const [err,setErr]=useState('')
+    const [working,setWorking]=useState(false)
+    const view=(snap&&snap.binding)||{}
+    const source=sourceLabel[view.source]||view.source||'未连接'
+    async function run(kind){
+      if(working||busy)return
+      const target=path.trim()
+      if(!target){setErr('请填写研究定义 JSON 的完整路径');return}
+      setWorking(true);setErr('')
+      try{
+        newPage()
+        if(kind==='create')await call('studyCreate',{studyPath:target,name:name.trim()||undefined})
+        else await call('studyConnect',{studyPath:target})
+        await onDone()
+      }catch(e){setErr(e.message)}finally{setWorking(false)}
+    }
+    return h('details',{className:'so-disclosure so-connect'},
+      h('summary',null,'研究连接 · '+(snap&&snap.study?snap.study.name:'未连接')+'（'+source+'）'),
+      h('div',{className:'so-form'},
+        h('div',{className:'so-form-fields'},
+          h('label',{className:'so-field'},h('span',null,'研究定义路径（…/study.json）'),h('input',{value:path,placeholder:'D:\\研究目录\\study.json',onChange:e=>setPath(e.target.value),'aria-label':'研究定义路径'})),
+          h('label',{className:'so-field'},h('span',null,'新建时的研究名称（可选）'),h('input',{value:name,placeholder:'例如：合成研究 A',onChange:e=>setName(e.target.value),'aria-label':'新建研究名称'}))),
+        h('div',{className:'so-form-actions'},
+          h('button',{className:'so-btn so-btn-primary',type:'button',disabled:working||busy,onClick:()=>run('connect')},'连接已有研究'),
+          h('button',{className:'so-btn so-btn-quiet',type:'button',disabled:working||busy,onClick:()=>run('create')},'创建空研究'),
+          h('span',{className:'so-note'},'连接只改变当前页面；其他页面与会话保留各自绑定。')),
+        err?h('span',{className:'so-form-error',role:'alert'},err):null,
+        h('div',{className:'so-source'},h('b',null,'当前绑定'),h('span',null,source+(view.instanceId?' · 实例 '+String(view.instanceId).slice(0,14):'')+(view.studyPath?' · '+view.studyPath:' · 无研究定义')+(view.bindingRevision!==undefined?' · 版本 '+view.bindingRevision:'')))))
+  }
+  function CoreSection({core,busy,onRefresh,detail,reason,setReason,onOpen,onAdjudicate,onCancel,onOpenPanel,onFollowup,coreAt,coreError}){
+    const [colFilter,setColFilter]=useState('behavior')
+    const staleNote=coreError?h('p',{className:'so-alert so-error',role:'alert'},'核心读取失败：'+coreError+(core&&coreAt?'；显示的是 '+fmtTime(coreAt)+' 的快照，可点刷新重试':'')):null
+    // 首次渲染时 core 还是 null（load() 先 setSnap 再 await loadCore）；这里必须能安全渲染，
+    // 否则整个面板会被错误边界抹成空白。
+    if(!core)return h('details',{className:'so-disclosure so-core'},h('summary',null,'已提交数据（核心）：正在读取…'),staleNote)
+    const totals=core.totals||{}
+    const sex=core.sex||{}
+    const label={male:'男',female:'女',other:'其他',unknown:'未知',missing:'缺失'}
+    const stateLabel={not_due:'未到期',missing:'缺失',received:'已收到',entered:'已录入',complete:'完成',conflict:'冲突'}
+    const qualityLabel={unchecked:'未校验',valid:'有效',invalid:'不合格',unscorable:'不可计分',unknown:'未知'}
+    const legacyBytes=Object.values(core.sources||{}).reduce((sum,health)=>sum+((health&&health.legacy&&health.legacy.state==='ok'&&health.legacy.bytes)||0),0)
+    const summary=core.error
+      ? '已提交数据（核心）：读取失败'
+      : (totals.participants||0)===0&&legacyBytes>0
+        ? '已提交数据（核心）：尚未开始（旧文件 '+Math.round(legacyBytes/1024)+' KB 未迁移）'
+        : '已提交数据（核心）：入组 '+(totals.enrolled||0)+' · 男 '+(sex.male||0)+' 女 '+(sex.female||0)+' 其他 '+(sex.other||0)+' 未知 '+(sex.unknown||0)+' 缺失 '+(sex.missing||0)
+    const visits=core.visits||[]
+    const tasks=core.tasks||[]
+    const allCols=[]
+    for(const visit of visits)for(const task of tasks)if((task.visits||[]).includes(visit.id))allCols.push({visit,task})
+    // 任务多起来以后（私有研究现在 34 个任务、38 列），默认只显示有记录的列；取消勾选可看全部。
+    const recordedKeys=new Set()
+    for(const row of (core.matrix||[])){
+      for(const [key,slot] of Object.entries(row.slots||{})){
+        if(slot&&!['missing','not_applicable','not_due'].includes(slot.collection))recordedKeys.add(key)
+      }
+    }
+    const scaleTaskIds=new Set(tasks.filter(task=>task.source&&task.source.type==='scale').map(task=>task.id))
+    const cols=
+      colFilter==='recorded'?allCols.filter(item=>recordedKeys.has(item.visit.id+'::'+item.task.id))
+      :colFilter==='behavior'?allCols.filter(item=>!scaleTaskIds.has(item.task.id))
+      :colFilter==='scale'?allCols.filter(item=>scaleTaskIds.has(item.task.id))
+      :allCols
+    const matrix=Array.isArray(core.matrix)&&cols.length
+      ? h('div',{className:'so-table-wrap',tabIndex:0,role:'region','aria-label':'核心数据任务矩阵'},
+          h('table',{className:'so-table'},
+            h('thead',null,h('tr',null,
+              h('th',{className:'so-idcol',scope:'col'},'参与者'),
+              cols.map(c=>h('th',{key:c.visit.id+'|'+c.task.id,className:'so-taskcol',scope:'col'},(c.visit.label||c.visit.id)+' · '+(c.task.label||c.task.id))),
+              h('th',{className:'so-fucol',scope:'col'},'状态'))),
+            h('tbody',null,core.matrix.map(row=>h('tr',{key:row.participantKey},
+              h('th',{className:'so-idcol',scope:'row'},h('span',{className:'so-id-main'},row.participantId),h('span',{className:'so-id-sub'},(row.status==='enrolled'?'已入组':row.status)+' · '+(Object.values(row.groups||{}).join(' · ')||'未分组'))),
+              cols.map(c=>{
+                const slot=row.slots[c.visit.id+'::'+c.task.id]||{}
+                const state=slot.collection||'missing'
+                return h('td',{key:c.visit.id+'|'+c.task.id,title:(stateLabel[state]||state)+' · 质量 '+(qualityLabel[slot.quality]||slot.quality||'未知')},
+                  h('button',{type:'button',className:'so-cell so-cellbtn',disabled:busy,onClick:()=>onOpen(row.participantId,c.visit.id,c.task.id),'data-s':state, 'aria-label':(stateLabel[state]||state)+'：'+row.participantId+' '+c.visit.id+' '+c.task.id},
+                    (stateLabel[state]||state)+(slot.quality&&!['unchecked','unknown'].includes(slot.quality)?' · '+(qualityLabel[slot.quality]||slot.quality):'')))
+              }),
+              h('td',{className:'so-fucol'},row.status==='enrolled'?'已入组':row.status))))
+          ))
+      : h('p',{className:'so-note'},tasks.length?'研究定义已声明 '+tasks.length+' 个任务，但核心还没有参与者或记录，矩阵暂时为空。':'核心投影里还没有任务矩阵（研究定义没有访视或任务）。')
+    return h('details',{className:'so-disclosure so-core'},
+      h('summary',{title:'分母=已入组；来源版本 '+(String(core.inputRevision||'').slice(0,8)||'—')+'（同一版本可重复重建）'},summary),
+      core.error
+        ? h('div',null,h('p',{className:'so-note'},'核心读取失败：'+core.error),staleNote)
+        : h('div',{className:'so-shell'},
+          staleNote,
+          (totals.participants||0)===0
+            ? h('p',{className:'so-note'},'核心还没有已提交记录；下面的数字来自旧文件扫描。迁移完成后这里才会成为唯一来源。')
+            : h('p',{className:'so-note'},'上面四个指标来自旧文件扫描；这里读的是已提交版本（迁移期并列显示，两边不同属正常）。'),
+          h('div',{className:'so-spine-facts'},
+            h('span',null,'参与者 '+(totals.participants||0)),
+            h('span',null,'已入组 '+(totals.enrolled||0)),
+            h('span',null,'已登记未入组 '+(totals.registered||0)),
+            h('span',null,'退出 '+(totals.exited||0)),
+            h('span',{className:'so-tag '+(sex.mapped?'so-tag-info':'so-tag-warn')},sex.mapped?'核心人口学':'未识别性别字段')),
+          (core.groups||[]).length?h('div',{className:'so-groupgrid'},core.groups.map(group=>h('div',{key:group.group,className:'so-groupcard',title:'分母：该组已入组 '+group.enrolled+' 人；来源版本 '+(String(core.inputRevision||'').slice(0,8)||'—')},            h('div',{className:'so-groupname'},group.group==='未分组'?'未分组':group.group),
+            h('div',{className:'so-groupcount'},group.enrolled,h('small',null,'人已入组')),
+            h('div',{className:'so-groupsex'},['male','female','other','unknown','missing'].map(key=>label[key]+' '+group.sex[key]).join(' · '))))):h('p',{className:'so-note'},'核心投影里还没有分组。'),
+          h('div',{className:'so-spine-facts'},
+            h('span',null,'异常 '+((core.anomalies||[]).length)),
+            h('span',null,'随访 到期 '+((core.followupCounts&&core.followupCounts.due)||0)+' · 逾期 '+((core.followupCounts&&core.followupCounts.overdue)||0)),
+            h('span',null,'输入版本 '+String(core.inputRevision||'').slice(0,8))),
+          h('div',{className:'so-spine-facts'},h('b',null,'图例'),
+            h('span',{className:'so-tag so-tag-ok'},'完成'),
+            h('span',{className:'so-tag so-tag-info'},'已录入'),
+            h('span',{className:'so-tag so-tag-warn'},'缺失/未到期'),
+            h('span',{className:'so-tag so-tag-bad'},'冲突/不合格'),
+            h('label',{className:'so-note',style:{display:'inline-flex',alignItems:'center',gap:6,marginLeft:'auto'}},'列范围',
+              h('select',{className:'so-mini',value:colFilter,onChange:e=>setColFilter(e.target.value),'aria-label':'矩阵列范围'},
+                h('option',{value:'behavior'},'行为任务（DDT/IDM）'),
+                h('option',{value:'scale'},'量表'),
+                h('option',{value:'recorded'},'有记录的列'),
+                h('option',{value:'all'},'全部（'+allCols.length+' 列）')))),
+          matrix,
+          (()=>{
+            const rows=core.followups||[]
+            const followupLabel={scheduled:'未到期',due:'到期',overdue:'逾期',unknown:'未确定',done:'完成'}
+            const tone={scheduled:'so-tag-plain',due:'so-tag-warn',overdue:'so-tag-bad',unknown:'so-tag-warn',done:'so-tag-ok'}
+            return h('div',{className:'so-block'},
+              h('div',{className:'so-blockhead'},h('h3',null,'随访（核心）'),h('p',{className:'so-blocknote'},'锚点=全部必需且适用任务都有效完成的最晚日期；完成后保留证据。')),
+              rows.length
+                ? h('ul',{className:'so-anomlist'},rows.slice(0,10).map(row=>h('li',{key:row.participantId+'|'+row.followupId,className:'so-anom'},
+                    h('span',{className:'so-tag '+(tone[row.state]||'so-tag-plain')},followupLabel[row.state]||row.state),
+                    h('span',{className:'so-anom-msg'},h('b',null,row.participantId+' · '+(row.label||row.followupId)),h('p',null,'锚点 '+(row.anchorDate||'未知')+' · 到期 '+(row.dueAt||'未知')+(row.evidence?(' · 证据 '+(row.evidence.type==='observation'?'observation '+row.evidence.observationId:'人工 '+(row.evidence.reason||''))):''))),
+                    h('span',{className:'so-anom-act'},h('button',{type:'button',className:'so-btn so-btn-quiet so-btn-sm',disabled:busy,onClick:()=>onFollowup(row,row.state!=='done')},row.state==='done'?'撤销':'完成')))))
+                : h('p',{className:'so-note'},'没有随访规则。'))
+          })(),
+          detail?h('div',{className:'so-block'},
+            h('div',{className:'so-blockhead'},h('h3',null,'单元格明细：'+((detail.participant&&detail.participant.participantId)||'')+' '+detail.visitId+' / '+detail.taskId),h('p',{className:'so-blocknote'},'来源、采集状态、质量与冲突；不显示身份联系表。')),
+            h('div',{className:'so-spine-facts'},h('span',null,'状态 '+detail.state)),
+            (detail.observations||[]).length?h('ul',{className:'so-anomlist'},detail.observations.map(row=>h('li',{key:row.observationId,className:'so-anom'},
+              h('span',{className:'so-tag '+((row.adjudication&&row.adjudication.chosen)?'so-tag-ok':'so-tag-plain')},(row.adjudication&&row.adjudication.chosen)?'已选':'候选'),
+              h('span',{className:'so-anom-msg'},h('b',null,row.observationId),h('p',null,'采集 '+(stateLabel[row.collectionState]||row.collectionState)+' · 质量 '+(qualityLabel[row.qualityState]||row.qualityState)+' · 来源 '+(row.sourceType||'—')+(row.sourceRevision?' / '+row.sourceRevision:'')+(row.eventDate?' · '+row.eventDate:' · 日期未知'))),
+              h('span',{className:'so-anom-act'},h('button',{type:'button',className:'so-btn so-btn-quiet so-btn-sm',disabled:busy||(row.adjudication&&row.adjudication.chosen),onClick:()=>onAdjudicate(row.observationId)},'选为有效'))))):h('p',{className:'so-note'},'这个单元格还没有记录。'),
+            h('div',{className:'so-actions'},
+              h('input',{className:'so-search',placeholder:'裁决理由（可留空用默认）',value:reason||'',onChange:e=>setReason(e.target.value),'aria-label':'裁决理由',style:{maxWidth:'260px'}}),
+              h('button',{type:'button',className:'so-btn so-btn-ghost so-btn-sm',disabled:busy,onClick:onCancel},'撤销裁决'),
+              (()=>{
+                const taskDef=(core.tasks||[]).find(task=>task.id===detail.taskId)
+                const source=taskDef&&taskDef.source&&taskDef.source.type==='scale'?taskDef.source:null
+                if(!source||!source.scaleId)return null
+                return h('button',{type:'button',className:'so-btn so-btn-quiet so-btn-sm',disabled:busy,onClick:()=>onOpenPanel({participantId:detail.participant&&detail.participant.participantId,scaleId:source.scaleId,waveId:source.waveId})},'在量表计分中打开这个编号')
+              })()))
+            :h('p',{className:'so-note'},'点击矩阵单元格查看来源、采集状态、质量与冲突，并做裁决。'),
+          h('div',{className:'so-actions'},h('button',{className:'so-btn so-btn-quiet so-btn-sm',type:'button',disabled:busy,onClick:onRefresh},'刷新核心投影'))))
+  }
+  function Panel({openPanel}){
+    const [snap,setSnap]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[filter,setFilter]=useState('all'),[notice,setNotice]=useState(''),[dismissed,setDismissed]=useState(false),[query,setQuery]=useState(''),[stale,setStale]=useState(false),[core,setCore]=useState(null),[cellDetail,setCellDetail]=useState(null),[reason,setReason]=useState(''),[coreAt,setCoreAt]=useState(''),[coreError,setCoreError]=useState(''),[view,setView]=useState(readView())
+    function switchView(next){setView(next);try{localStorage.setItem('dsh:research:run-view:v1',next)}catch{/* 忽略 */}}
+    async function loadCore(){
+      try{const next=await call('flowProjection');setCore(next);setCoreError('');setCoreAt(new Date().toISOString())}
+      catch(e){setCoreError(e.message)}
+    }
+    // 变化订阅的轻量版：页面可见时每 20 秒读一次核心投影，窗口重新聚焦时也读一次；
+    // 读失败保留最后一次成功的核心数据与时间，不把已显示的投影清空。
+    useEffect(()=>{
+      const tick=()=>{ if(typeof document!=='undefined'&&document.visibilityState==='hidden')return; loadCore() }
+      const timer=setInterval(tick,20000)
+      const onFocus=()=>loadCore()
+      if(typeof window!=='undefined')window.addEventListener('focus',onFocus)
+      return ()=>{clearInterval(timer);if(typeof window!=='undefined')window.removeEventListener('focus',onFocus)}
+    },[])
+    async function openCell(participantId,visitId,taskId){
+      try{setCellDetail(await call('observationDetail',{participantId,visitId,taskId}))}
+      catch(e){setNotice('读取单元格明细失败：'+e.message)}
+    }
+    async function adjudicateCell(observationId){
+      if(!cellDetail)return
+      try{
+        setBusy(true)
+        const detail=await call('observationAdjudicate',{participantId:cellDetail.participant&&cellDetail.participant.participantId,visitId:cellDetail.visitId,taskId:cellDetail.taskId,observationId,reason:reason.trim()||'运行台人工裁决'})
+        setCellDetail(detail);setReason('');await loadCore()
+      }catch(e){setError(e.message)}finally{setBusy(false)}
+    }
+    async function cancelCell(){
+      if(!cellDetail)return
+      try{
+        setBusy(true)
+        const detail=await call('observationCancel',{participantId:cellDetail.participant&&cellDetail.participant.participantId,visitId:cellDetail.visitId,taskId:cellDetail.taskId})
+        setCellDetail(detail);await loadCore()
+      }catch(e){setError(e.message)}finally{setBusy(false)}
+    }
+    async function markFollowup(row,done){
+      try{
+        setBusy(true)
+        await call('followupMark',{participantId:row.participantId,followupId:row.followupId,done,reason:done?'运行台人工标记':'运行台撤销标记'})
+        await loadCore();setNotice(done?'已标记随访完成：'+row.participantId:'已撤销随访完成：'+row.participantId)
+      }catch(e){setError(e.message)}finally{setBusy(false)}
+    }
+    function openScalePanel(hint){
+      try{localStorage.setItem('dsh:research:focus:v1',JSON.stringify({...hint,at:Date.now()}))}catch(e){setNotice('无法写入焦点提示：'+e.message)}
+      if(openPanel)openPanel('scale-desk')
+      else setNotice('已在本地记录焦点；打开「量表计分」即可看到提示')
+    }
+    const load=useCallback(async(force=false)=>{setBusy(true);setError('');try{const next=await call(force?'refresh':'status',force?{forceQc:true}:undefined);setSnap(next);setStale(false);await loadCore()}catch(e){if(['binding_conflict','binding_required','study_missing'].includes(e.code))setStale(true);setError(e.message)}finally{setBusy(false)}},[snap?.binding?.bindingRevision])
+    useEffect(()=>{load()},[])
+    async function save(action,payload){setBusy(true);setError('');try{const result=await call(action,{...payload,stateRevision:snap.stateRevision});try{setSnap(await call('status'))}catch(e){setNotice('已保存；状态刷新失败，请刷新后再操作：'+e.message)}return result}catch(e){if(['binding_conflict','binding_required','study_missing'].includes(e.code))setStale(true);setError(e.message);throw e}finally{setBusy(false)}}
+    const click=(action,payload)=>()=>{save(action,payload).catch(()=>{})}
+    const header=h('header',{className:'so-pagehead'},
+      h('div',{className:'so-headtext'},h('h1',null,'实验运行台'),h('p',{className:'so-pagemeta'},(snap?.study.name||'当前研究')+(snap?.generatedAt?' · 更新于 '+fmtTime(snap.generatedAt):''))),
+      h('div',{className:'so-actions'},
+        h('div',{className:'so-filter',role:'group','aria-label':'数据视图'},
+          h('button',{type:'button','aria-pressed':view==='both',onClick:()=>switchView('both')},'并列'),
+          h('button',{type:'button','aria-pressed':view==='core',onClick:()=>switchView('core')},'核心'),
+          h('button',{type:'button','aria-pressed':view==='legacy',onClick:()=>switchView('legacy')},'旧文件')),
+        h('button',{className:'so-btn so-btn-quiet',disabled:busy,onClick:()=>load()},'刷新'),
+        h('button',{className:'so-btn so-btn-primary',disabled:busy,onClick:()=>load(true)},'重新检查'),
+        h('button',{className:'so-btn so-btn-quiet',disabled:busy||!snap,onClick:async()=>{try{const data=await call('export',{});setNotice('已导出：'+data.files.map(f=>f.name).join('、'))}catch(e){setError(e.message)}}},'导出报告')))
+    if(!snap)return h('div',{className:'so-root'},h('div',{className:'so-shell'},header,error?h('div',{className:'so-alert so-error',role:'alert'},error):null,h('div',{className:'so-empty',role:'status'},h('strong',null,busy?'正在读取研究来源…':'还没有研究状态'),h('span',null,'研究来源连接后，这里会显示入组、预约、随访、矩阵与异常。')),h(ConnectBar,{snap:null,busy,onDone:()=>load()})))
+    const slotList=snap.subjects.flatMap(s=>Object.values(s.slots))
+    const dueSlots=slotList.filter(x=>!['not_due','not_applicable','na'].includes(x.state))
+    const doneSlots=dueSlots.filter(x=>x.state==='ok')
+    const groups=Object.entries(snap.enrollment.groups||{})
+    const followups=snap.subjects.flatMap(s=>(s.followups||[]).filter(f=>['due','overdue'].includes(f.state)).map(f=>({...f,subject:s.id})))
+    const schedule=(snap.schedule||[]).slice().sort((a,b)=>(a.date+a.start).localeCompare(b.date+b.start))
+    const tasks=[
+      ...schedule.map(item=>({kind:'appt',date:item.date,time:item.start,item})),
+      ...followups.map(item=>({kind:'follow',date:item.due||'',time:'',item}))
+    ].sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time))
+    const filtered=snap.subjects.filter(s=>filter==='issues'?s.hasIssue:filter==='followup'?s.followups.some(f=>['due','overdue'].includes(f.state)):true).filter(s=>{if(!query.trim())return true;const q=query.trim();return s.id.includes(q)||Object.values(s.groups).some(g=>String(g).includes(q))})
+    const sources=Object.entries(snap.sources||{})
+    const healthy=sources.filter(([,s])=>s.state==='ok').length
+    // 顶部的四个指标按视图取数：核心优先（core）用已提交版本，其余用旧文件扫描。
+    const coreReady=Boolean(core&&core.totals&&(core.totals.participants||0)>0)
+    const useCore=view==='core'&&coreReady
+    const coreDone=coreReady?((core.matrix||[]).reduce((sum,row)=>sum+Object.values(row.slots||{}).filter(slot=>slot&&slot.collection==='complete').length,0)):0
+    const coreBad=coreReady?(core.anomalies||[]).length:0
+    const coreFollow=coreReady?(((core.followupCounts||{}).due||0)+((core.followupCounts||{}).overdue||0)):0
+    const coreNote=useCore?' · 核心已提交 版本 '+String((core&&core.inputRevision)||'').slice(0,8):''
+    const visitCols=(snap.visits||[]).map(v=>({visit:v,cols:(snap.columns||[]).filter(c=>c.visitId===v.id)})).filter(x=>x.cols.length)
+    const taskName=c=>{const parts=String(c.label||'').split(' · ');return parts.length>1?parts.slice(1).join(' · '):(c.taskId||c.label||'任务')}
+    const matrixHead = h('thead', null,
+      h('tr', null,
+        h('th', { className: 'so-idcol', rowSpan: 2, scope: 'col' }, '参与者'),
+        visitCols.map(({ visit, cols }) => h('th', { key: visit.id, colSpan: cols.length, className: 'so-visitcol', scope: 'colgroup' }, visit.label || visit.id)),
+        h('th', { rowSpan: 2, className: 'so-fucol', scope: 'col' }, '随访')),
+      h('tr', null, visitCols.flatMap(({ cols }) => cols.map(c => h('th', { key: c.id, className: 'so-taskcol', scope: 'col' }, taskName(c))))))
+    const matrixBody = filtered.length
+      ? filtered.map(s => h('tr', { key: s.id },
+          h('th', { className: 'so-idcol', scope: 'row' },
+            h('span', { className: 'so-id-main' }, s.id),
+            h('span', { className: 'so-id-sub' }, (Object.values(s.groups).join(' · ') || '未分组') + ' · ' + (s.enrolled ? '已入组' : '待入组'))),
+          visitCols.flatMap(({ cols }) => cols.map(c => {
+            const slot = s.slots[c.id] || {}
+            return h('td', { key: c.id, title: (slot.records || []).map(r => r.recordId + ' ' + r.date + ' ' + r.status).join('\n') },
+              h('span', { className: 'so-cell', 'data-s': slot.state || 'unknown' }, labels[slot.state] || slot.state || '—'))
+          })),
+          h('td', { className: 'so-fucol' }, s.followups?.length
+            ? s.followups.map(f => h('div', { key: f.id, className: 'so-fu' },
+                h('span', null, followupLabel(f, snap.visits) + ' ' + (f.due || '日期未确定') + ' ' + (followupStates[f.state] || '')),
+                f.due ? h('button', { className: 'so-btn so-btn-quiet so-btn-sm', disabled: busy, onClick: click('followup', { id: s.id, followupId: f.id, done: f.state !== 'done' }) }, f.state === 'done' ? '撤销' : '完成') : null))
+            : h('span', { className: 'so-note' }, '—'))))
+      : h('tr', null, h('td', { colSpan: visitCols.reduce((n, x) => n + x.cols.length, 0) + 2, className: 'so-note' }, snap.subjects.length ? '当前筛选没有参与者。' : '参与者表中还没有可显示的记录。'))
+    const matrix = h('section', { className: 'so-block' },
+      h('div', { className: 'so-blockhead' }, h('h2', null, '参与者进度'), h('p', { className: 'so-blocknote' }, '按访视组织任务列；悬停单元格可看记录日期与状态依据。'+(view==='core'?' · 旧文件来源':''))),
+      h('div', { className: 'so-toolbar' },
+        h('input', { className: 'so-search', type: 'search', placeholder: '搜索编号或组别，如 P-013 / A', value: query, onChange: e => setQuery(e.target.value), 'aria-label': '搜索参与者' }),
+        h('div', { className: 'so-filter', role: 'group', 'aria-label': '参与者筛选' },
+          [['all', '全部'], ['issues', '有异常'], ['followup', '待随访']].map(([key, label]) => h('button', { key, 'aria-pressed': filter === key, onClick: () => setFilter(key) }, label))),
+        h('span', { className: 'so-count' }, '显示 ' + filtered.length + ' / ' + snap.subjects.length + ' 人')),
+      h('div', { className: 'so-table-wrap', tabIndex: 0, role: 'region', 'aria-label': '参与者任务矩阵' },
+        h('table', { className: 'so-table' }, matrixHead, h('tbody', null, matrixBody))))
+    const body=h('div',{className:'so-shell'},
+      header,
+      h(ConnectBar,{snap,busy,onDone:()=>load()}),
+      view==='legacy'?null:h(CoreSection,{core,busy,onRefresh:loadCore,detail:cellDetail,reason,setReason,onOpen:openCell,onAdjudicate:adjudicateCell,onCancel:cancelCell,onOpenPanel:openScalePanel,onFollowup:markFollowup,coreAt,coreError}),
+      stale?h('div',{className:'so-alert so-error',role:'alert'},'研究已变化：当前页面的绑定已过期，写入会被拒绝。请先导出需要的草稿，再重新加载或连接研究。',h('button',{className:'so-btn so-btn-quiet so-btn-sm',type:'button',onClick:()=>{newPage();load()}},'重新加载研究')):null,
+      error?h('div',{className:'so-alert so-error',role:'alert'},error):null,
+      notice?h('div',{className:'so-alert so-note',role:'status'},notice):null,
+      h('div',{className:'so-spine'},
+        h('div',{className:'so-spine-id'},h('b',null,snap.study.name),h('span',null,snap.study.id)),
+        h('div',{className:'so-spine-facts'},h('span',null,'状态版本 '+snap.stateRevision),h('span',null,'来源 '+healthy+' / '+sources.length+' 正常'),snap.demographics?.present?h('span',null,'男 '+snap.demographics.sex.male+' · 女 '+snap.demographics.sex.female+(snap.demographics.sex.unknown?' · 未知 '+snap.demographics.sex.unknown:'')):null,snap.binding?h('span',null,'实例 '+String(snap.binding.instanceId||'').slice(0,12)):null)),
+      snap.empty?h('div',{className:'so-empty'},h('strong',null,'尚未配置研究来源'),h('span',null,'通过 studyPath 指定参与者表、访视、任务和记录长表。')):null,
+      sources.filter(([,s])=>s.state!=='ok').map(([name,s])=>h('div',{key:name,className:'so-alert '+(s.state==='empty'?'so-note':'so-warning')},name+'：'+({empty:'来源为空',missing:'来源不存在',error:'读取失败',unconfigured:'未配置'}[s.state]||s.state)+(s.error?'；'+s.error:''))),
+      (snap.fileIssues||[]).map((f,i)=>h('div',{key:i,className:'so-alert so-error'},f.source+(f.row?' 第'+f.row+'行':'')+'：'+f.text)),
+      view==='core'&&!coreReady?h('div',{className:'so-alert so-note',role:'status'},'当前视图是「核心」，但核心还没有已提交数据；下面暂时显示旧文件扫描的数字。完成一次人口学保存或量表重算后会自动改用核心。'):null,
+      h('div',{className:'so-metrics'},
+        h('div',{className:'so-metric'},h('span',{className:'so-metric-name'},'已入组'),h('span',{className:'so-metric-value'},useCore?core.totals.enrolled:snap.enrollment.n,h('small',null,'人')),h('span',{className:'so-metric-scope'},useCore?'分母：核心参与者索引'+coreNote:'参与者表共 '+snap.enrollment.total+' 人；按研究规则统计')),
+        h('div',{className:'so-metric'},h('span',{className:'so-metric-name'},'任务完成'),h('span',{className:'so-metric-value'},useCore?coreDone:doneSlots.length,h('small',null,'份')),h('span',{className:'so-metric-scope'},useCore?'核心矩阵里采集状态为「完成」的格'+coreNote:'已完成 '+doneSlots.length+' / 应完成 '+dueSlots.length+'；不含未到期与不适用')),
+        h('div',{className:'so-metric','data-tone':(useCore?coreBad:snap.counts.bad+snap.counts.warn)>0?'bad':'ok'},h('span',{className:'so-metric-name'},'异常'),h('span',{className:'so-metric-value'},useCore?coreBad:snap.counts.bad+snap.counts.warn,h('small',null,'条')),h('span',{className:'so-metric-scope'},useCore?'冲突 / 已到期缺失 / 质量不合格'+coreNote:'高 '+snap.counts.bad+' 条 · 中 '+snap.counts.warn+' 条')),
+        h('div',{className:'so-metric'},h('span',{className:'so-metric-name'},'随访待办'),h('span',{className:'so-metric-value'},useCore?coreFollow:snap.counts.followupDue,h('small',null,'项')),h('span',{className:'so-metric-scope'},useCore?'核心随访里「到期 + 逾期」'+coreNote:'到期或逾期；每人按随访规则计'))),
+      h('section',{className:'so-block'},h('div',{className:'so-blockhead'},h('h2',null,'分组进度'),h('p',{className:'so-blocknote'},'按入组规则统计；未设置目标人数时不显示进度。'+(view==='core'?' · 旧文件来源':''))),
+        groups.length?h('div',{className:'so-groupgrid'},groups.map(([name,n])=>{
+          const sex=snap.demographics?.present?(snap.demographics.byGroup?.[name]||{male:0,female:0,unknown:0}):null
+          return h('div',{key:name,className:'so-groupcard'},
+            h('div',{className:'so-groupname'},groupName(name),name?h('span',null,'组'):null),
+            h('div',{className:'so-groupcount'},n,h('small',null,'人已入组')),
+            sex?h('div',{className:'so-groupsex'},'男 '+sex.male+' · 女 '+sex.female+(sex.unknown?' · 未知 '+sex.unknown:'')):null,
+            h('div',{className:'so-groupscope'},'未设置目标人数，不显示进度'))
+        })):h('p',{className:'so-note'},'当前研究没有分组列。')),
+      h('section',{className:'so-block'},h('div',{className:'so-blockhead'},h('h2',null,'今日与近期任务'),h('p',{className:'so-blocknote'},'预约与到期随访按日期排序；完成操作会立即写入研究状态。')),
+        tasks.length?h('ul',{className:'so-tasklist'},tasks.map(({kind,date,time,item})=>{
+          const isAppt=kind==='appt'
+          const visit=isAppt?snap.visits.find(v=>v.id===item.visitId):null
+          const state=isAppt?item.status:item.state
+          const stateText=isAppt?({arrived:'已到',noshow:'缺席',planned:'未到',missed:'未到',data:'数据已到'}[state]||state):(followupStates[state]||'未确定')
+          const tone=isAppt?(state==='arrived'||state==='data'?'ok':state==='noshow'?'bad':'warn'):(state==='overdue'?'bad':'warn')
+          return h('li',{key:kind+'-'+(item.key||item.id)+'-'+(item.subject||''),className:'so-task'},
+            h('div',{className:'so-task-time'},h('b',null,date||'日期未定'),h('span',null,time||'—')),
+            h('div',null,h('div',{className:'so-task-title'},(item.subject||item.id||'参与者')+' · '+(isAppt?(visit?.label||item.visitId):followupLabel(item,snap.visits))),h('div',{className:'so-task-sub'},isAppt?(item.note||'预约')+' · '+(item.resource||'未指定地点'):('到期 '+item.due+' · 随访'))),
+            h('span',{className:'so-tag so-tag-'+tone},stateText),
+            h('div',{className:'so-task-actions'},isAppt?[
+              h('button',{key:'att',className:'so-btn so-btn-quiet so-btn-sm',disabled:busy,onClick:click('attendance',{key:item.key,status:item.attendance==='arrived'?'noshow':item.attendance==='noshow'?'':'arrived'})},item.attendance==='arrived'?'取消已到':item.attendance==='noshow'?'标记已到':'标记已到'),
+              h('button',{key:'del',className:'so-btn so-btn-ghost so-btn-sm',disabled:busy,onClick:click('schedule',{op:'remove',key:item.key})},'删除')
+            ]:[item.due?h('button',{key:'done',className:'so-btn so-btn-quiet so-btn-sm',disabled:busy,onClick:click('followup',{id:item.subject,followupId:item.id,done:item.state!=='done'})},'标记完成'):h('span',{key:'nodue',className:'so-note'},'日期未确定')])
+          )
+        })):h('p',{className:'so-note'},'今天与近期没有预约或到期随访。'),
+        h('details',{className:'so-disclosure'},h('summary',null,'新建预约'),h(ScheduleForm,{key:snap.study.id,snap,busy,onSave:draft=>save('schedule',{op:'add',...draft})}))),
+      matrix,
+      h('section',{className:'so-block'},h('div',{className:'so-blockhead'},h('h2',null,'异常处理'),h('p',{className:'so-blocknote'},'忽略不会删除记录；忽略原因会写入研究状态。'+(view==='core'?' · 旧文件来源':''))),
+        snap.anomalies.length?h('ul',{className:'so-anomlist'},snap.anomalies.map(a=>h('li',{key:a.key,className:'so-anom'},h('span',{className:'so-tag '+(a.level==='bad'?'so-tag-bad':'so-tag-warn')},a.level==='bad'?'高':'中'),h('span',{className:'so-anom-msg'},h('b',null,a.id),h('p',null,a.text)),h('span',{className:'so-anom-act'},h('button',{className:'so-btn so-btn-quiet so-btn-sm',disabled:busy,onClick:click('dismiss',{key:a.key})},'忽略'))))):h('p',{className:'so-note'},'没有待处理异常。'),
+        h('button',{className:'so-btn so-btn-ghost so-btn-sm',disabled:busy,onClick:()=>setDismissed(!dismissed)},(dismissed?'收起':'查看')+'已忽略 '+snap.dismissed.length+' 条'),
+        dismissed?h('ul',{className:'so-anomlist',style:{marginTop:8}},snap.dismissed.map(a=>h('li',{key:a.key,className:'so-anom'},h('span',{className:'so-tag so-tag-plain'},'已忽略'),h('span',{className:'so-anom-msg'},h('b',null,a.id),h('p',null,a.text+'；'+a.dismissedAt+(a.note?'；'+a.note:''))),h('span',{className:'so-anom-act'},h('button',{className:'so-btn so-btn-quiet so-btn-sm',disabled:busy,onClick:click('restore',{key:a.key})},'恢复'))))):null,
+        h('details',{className:'so-disclosure'},h('summary',null,'来源与技术详情'),sources.map(([name,s])=>h('div',{key:name,className:'so-source'},h('b',null,name),h('span',null,({ok:'正常',empty:'空来源',missing:'不存在',error:'读取失败',unconfigured:'未配置'}[s.state]||s.state)+(s.path?' · '+s.path:'')+(s.hash?' · '+String(s.hash).slice(0,12):'')))))),
+      h('div',{className:'so-foot'},h('span',null,'更新于 '+fmtTime(snap.generatedAt)),h('span',null,'状态版本 '+snap.stateRevision),h('span',null,'规则 '+(snap.ruleVersion||'—')))
+    )
+    return h('div',{className:'so-root'},body)
+  }
+  return {inject:['slots'],apply(ctx){ctx.effect(()=>{const style=document.createElement('style');style.textContent=CSS;document.head.appendChild(style);return()=>style.remove()},'study-ops: styles');ctx.slots.inject('sidebar.panellist',()=>ctx.slots.register({name:'sidebar.panellist',id:'study-ops',order:31,label:'实验运行台'},()=>h('svg',{width:18,height:18,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:1.8,'aria-hidden':true},h('rect',{x:4,y:3,width:16,height:18,rx:3}),h('path',{d:'M8 8h8M8 12h8M8 16h5'}))));ctx.slots.inject('main',()=>ctx.slots.register({name:'main',key:'study-ops'},()=>h(Panel,{openPanel:id=>{try{ctx.get('layout')?.selectPanel?.(id)}catch{/* 没有布局服务时只保留焦点提示 */}}})))}}
+}})

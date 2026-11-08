@@ -1,9 +1,9 @@
 {
   "name": "@local/study-ops",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "实验运行台：被试进度、DDT/IDM 数据质检、随访提醒",
+  "description": "配置驱动的研究运行台：参与者、访视任务、异常与预约随访",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
@@ -11,8 +11,11 @@
   },
   "files": [
     "index.js",
-    "scan.js",
-    "qc.py",
+    "generic-scan.mjs",
+    "csv.mjs",
+    "state-store.mjs",
+    "study-context.mjs",
+    "study-selection.mjs",
     "client.js",
     "cordis.patch.yml",
     "icon.svg",
@@ -28,6 +31,7 @@
       "inject": [
         "@deepseek-ai/dsh-client-ui-conversation"
       ]
-    }
+    },
+    "minVersion": "0.2.2-rc.1"
   }
 }

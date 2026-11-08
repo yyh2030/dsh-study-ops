@@ -1,8 +1,4 @@
 - insert:
     - id: study-ops
       name: '@local/study-ops'
-      config:
-        projectRoot: 'C:/Users/16787/OneDrive/Desktop/yyh硕士论文'
-        stateDir: 'D:/yyh-lab'
-        targetTotal: 150
-        targetPerCell: 32
+      config: {}
