@@ -2,7 +2,7 @@
 
 给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)(`dsh`)写的研究插件:实验运行台。把参与者表、访视任务记录、预约与随访规则读成一块可以每天盯着看的进度板。
 
-版本 0.3.0 · 需要 DSH ≥ 0.2.2-rc.1 · MIT 许可 · 依赖 [`@local/research-core`](https://github.com/yyh33028-netizen/dsh-research-core)
+版本 0.3.0 · 需要 DSH ≥ 0.2.2-rc.1 · MIT 许可 · 依赖 [`@local/research-core`](https://github.com/yyh2030/dsh-research-core)
 
 ## 为什么需要它
 
@@ -48,15 +48,15 @@
 研究插件套件用同一套安装方式:五个仓库放在同一层目录,业务插件用 `link:` 装进 profile。
 
 ```powershell
-git clone https://github.com/yyh33028-netizen/dsh-research-core.git
-git clone https://github.com/yyh33028-netizen/dsh-study-ops.git
+git clone https://github.com/yyh2030/dsh-research-core.git
+git clone https://github.com/yyh2030/dsh-study-ops.git
 dsh plugin --profile <profile> add link:<父目录>\dsh-study-ops
 ```
 
 也可以直接用 git 形式:
 
 ```powershell
-dsh plugin --profile <profile> add git+https://github.com/yyh33028-netizen/dsh-study-ops.git
+dsh plugin --profile <profile> add git+https://github.com/yyh2030/dsh-study-ops.git
 ```
 
 两种方式都要求 `research-core` 与本插件同级 —— 插件用相对路径 `../research-core/host.mjs` 引用共享核心。仓库是私有的,安装前需要有访问权限。装完重启承载 `dsh web` 的进程;客户端面板改动还需要刷新页面。
