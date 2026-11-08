@@ -1,5 +1,7 @@
 # @local/study-ops
 
+[English](README.en.md) · 中文
+
 给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)(`dsh`)写的研究插件:实验运行台。把参与者表、访视任务记录、预约与随访规则读成一块可以每天盯着看的进度板。
 
 版本 0.3.0 · 需要 DSH ≥ 0.2.2-rc.1 · MIT 许可 · 依赖 [`@local/research-core`](https://github.com/yyh2030/dsh-research-core)
