@@ -10,12 +10,15 @@ import { openResearchData } from '../research-core/data.mjs'
 import {
   scanMaterials, extractFindings, buildGaps, buildStudyDraft, assessReadiness,
   saveMaterialsIndex, loadMaterialsIndex, renderPrepReport, writeStudyDraft,
-  diffStudyDraft, validateStudyDraft,
+  diffStudyDraft, validateStudyDraft, loadCandidateDecisions, saveCandidateDecisions,
+  setCandidateDecision, applyCandidateDecisions, findCandidate, summarizeDecisions,
+  saveStudyDraftPreview, loadStudyDraftPreview, mergeStudyDraft, studyDefinitionRevision,
+  candidateKey, candidateId,
 } from '../research-core/materials.mjs'
 import { openFlow } from '../research-core/flow.mjs'
 
 const ROUTE = '/api/study-ops'
-const VERSION = '0.3.0'
+const VERSION = '0.3.1'
 const READ_ACTIONS = new Set(['status', 'subject', 'capabilities', 'flowProjection'])
 function send(res, status, payload) { res.statusCode = status; res.setHeader('content-type', 'application/json; charset=utf-8'); res.setHeader('cache-control', 'no-store'); res.setHeader('x-content-type-options', 'nosniff'); res.end(JSON.stringify(payload)) }
 function body(req) { return new Promise((resolve, reject) => { let size = 0; const chunks = []; req.on('data', chunk => { size += chunk.length; if (size > 1048576) { reject(Object.assign(new Error('请求体过大'), { code: 'invalid' })); return } chunks.push(chunk) }); req.on('end', () => { try { resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {}) } catch { reject(Object.assign(new Error('请求体不是合法 JSON'), { code: 'invalid' })) } }); req.on('error', reject) }) }
@@ -554,6 +557,15 @@ export function apply(ctx, config = {}) {
       if (!explicit) return cwd
       return path.isAbsolute(explicit) ? explicit : path.join(cwd, explicit)
     }
+    /** 准备度按阶段使用真实配置：统计后端来自插件/研究配置，演练状态来自配置。 */
+    function materialsReadinessOptions() {
+      const plugin = context()?.plugin || {}
+      return {
+        python: materialsPython(),
+        statisticsBackend: config.statisticsBackend || plugin.statisticsBackend,
+        dryRun: config.dryRun || plugin.dryRun,
+      }
+    }
     const indexDirFor = root => path.join(root, '.dsh-materials')
     function readDraftIfAny(root) {
       const candidate = path.join(root, 'study.json')
@@ -563,7 +575,8 @@ export function apply(ctx, config = {}) {
       const coverage = inventory.coverage || {}
       const lines = []
       lines.push(`材料目录：${inventory.root}`)
-      lines.push(`扫描：${coverage.files || 0} 个文件（解析 ${coverage.parsed || 0}，需要 OCR ${coverage.needsOcr || 0}，未解析 ${coverage.unparsed || 0}，失败 ${coverage.failed || 0}；覆盖率 ${Math.round((coverage.coverageRatio || 0) * 100)}%，复用 ${inventory.reused || 0} 个未变文件）`)
+      lines.push(`扫描：${coverage.files || 0} 个文件（解析 ${coverage.parsed || 0}，需要 OCR ${coverage.needsOcr || 0}，未解析 ${coverage.unparsed || 0}，失败 ${coverage.failed || 0}；覆盖率 ${Math.round((coverage.coverageRatio || 0) * 100)}%，分母含未尝试 ${coverage.notScanned || 0} 个；复用 ${inventory.reused || 0} 个未变文件）`)
+      lines.push(`扫描完整性：${coverage.complete === false ? '不完整（' + ((coverage.incompleteReasons || []).join('、') || '未知原因') + '）' : '完整'}${coverage.complete === false ? '；上一轮已知但本轮未遍历的文件标为 not_scanned，不判 removed' : ''}`)
       const blockers = readiness.blockers || []
       lines.push(`阻断项 ${blockers.length} 项` + (blockers.length ? '：' + blockers.slice(0, 6).map(row => `[${row.category}] ${row.text}`).join('；') : ''))
       const pending = readiness.pending || []
@@ -571,6 +584,8 @@ export function apply(ctx, config = {}) {
       const groups = new Map()
       for (const candidate of findings.candidates || []) groups.set(candidate.kind, (groups.get(candidate.kind) || 0) + 1)
       lines.push('已识别：' + ([...groups].map(([kind, count]) => `${kind} ${count}`).join('；') || '无'))
+      const decisions = summarizeDecisions(findings.candidates || [])
+      lines.push(`候选决定：已确认 ${decisions.accepted}，已拒绝 ${decisions.rejected}，待映射 ${decisions.pending_mapping}，待确认 ${decisions.pending}，需复核 ${decisions.needs_review}`)
       if (findings.conflicts?.length) lines.push(`冲突 ${findings.conflicts.length} 项（未批准）：` + findings.conflicts.map(row => row.label).join('；'))
       lines.push(`可疑指令内容 ${findings.instructionLike?.length || 0} 条（只作资料解析，不执行、不外传）`)
       lines.push(`索引：${indexDirFor(inventory.root)}/index`)
@@ -585,19 +600,23 @@ export function apply(ctx, config = {}) {
     scope.tools?.register({
       name: 'materials_scan',
       description: '扫描材料目录并保存派生索引：清单、解析状态、覆盖率、候选、冲突与缺项。只读材料、不联网、不移动文件；本地解析失败会明确列为未覆盖。',
-      parameters: { type: 'object', properties: { path: { type: 'string', description: '材料目录；省略则用会话当前目录' } }, additionalProperties: false },
+      parameters: { type: 'object', properties: { path: { type: 'string', description: '材料目录；省略则用会话当前目录' }, retry: { type: 'boolean', description: '强制重解析失败/未解析文件（环境补齐后使用）' } }, additionalProperties: false },
       output: { schema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'], additionalProperties: false }, render: (_args, value) => [{ type: 'text', text: value.text }] },
       async execute(args, exec) {
         const actor = binding.agentActor(exec)
         const root = materialsRoot(actor, args?.path)
         if (!existsSync(root)) throw error('材料目录不存在：' + root, 'not_found')
-        const previous = loadMaterialsIndex(indexDirFor(root)).inventory
-        const inventory = await scanMaterials({ root, previous, python: materialsPython(), maxFiles: 2000, maxDepth: 6, timeoutMs: 60000 })
-        const findings = extractFindings(inventory)
+        const indexDir = indexDirFor(root)
+        const previous = loadMaterialsIndex(indexDir).inventory
+        const inventory = await scanMaterials({ root, previous, python: materialsPython(), maxFiles: 2000, maxDepth: 6, timeoutMs: 60000, retryUnparsed: args?.retry === true })
+        // 重新扫描按来源指纹保留仍有效的人工决定；来源变化只标 needs_review，不静默忘记。
+        const decisions = loadCandidateDecisions(indexDir)
+        let findings = extractFindings(inventory)
+        findings = applyCandidateDecisions(findings, decisions)
         findings.gaps = buildGaps(findings)
         const draft = readDraftIfAny(root)
-        const readiness = await assessReadiness({ inventory, findings, draft, python: materialsPython() })
-        saveMaterialsIndex({ dir: indexDirFor(root), inventory, findings, readiness, report: renderPrepReport({ inventory, findings, readiness }) })
+        const readiness = await assessReadiness({ inventory, findings, draft, ...materialsReadinessOptions() })
+        saveMaterialsIndex({ dir: indexDir, inventory, findings, readiness, report: renderPrepReport({ inventory, findings, readiness }) })
         return { text: materialSummary(inventory, findings, readiness) }
       }
     })
@@ -611,10 +630,14 @@ export function apply(ctx, config = {}) {
         const root = materialsRoot(actor, args?.path)
         const index = loadIndexOrThrow(root)
         const draft = readDraftIfAny(root)
-        const readiness = await assessReadiness({ inventory: index.inventory, findings: index.findings, draft, python: materialsPython() })
+        const readiness = await assessReadiness({ inventory: index.inventory, findings: index.findings, draft, ...materialsReadinessOptions() })
         const focus = args?.focus || 'all'
         const lines = []
         for (const [area, value] of Object.entries(readiness.areas)) lines.push(`- ${area}：${value.state}`)
+        for (const [stage, value] of Object.entries(readiness.stages || {})) {
+          const reason = (value.blockers || []).map(row => row.text).join('；')
+          lines.push(`- 阶段 ${stage}：${value.state}${reason ? `（阻断：${reason}）` : ''}`)
+        }
         lines.push(`可以开始：${readiness.canStart ? '是' : '否'}`)
         if (focus !== 'pending') {
           lines.push(`阻断项 ${readiness.blockers.length} 项`)
@@ -628,39 +651,102 @@ export function apply(ctx, config = {}) {
       }
     })
     scope.tools?.register({
+      name: 'materials_decisions',
+      description: '查看或设置材料候选的确认/拒绝/待映射状态。决定持久化在派生索引里；重新扫描按来源指纹保留，来源变化只标 needs_review。',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: '材料目录；省略则用会话当前目录' },
+          op: { type: 'string', enum: ['list', 'set'] },
+          candidateKey: { type: 'string', description: '候选键（list 输出）' },
+          candidateId: { type: 'string', description: '候选短 ID（list 输出）' },
+          kind: { type: 'string' },
+          label: { type: 'string' },
+          decision: { type: 'string', enum: ['accepted', 'rejected', 'pending_mapping'] },
+          reason: { type: 'string' },
+        },
+        required: ['op'],
+        additionalProperties: false,
+      },
+      output: { schema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'], additionalProperties: false }, render: (_args, value) => [{ type: 'text', text: value.text }] },
+      async execute(args, exec) {
+        const actor = binding.agentActor(exec)
+        const root = materialsRoot(actor, args?.path)
+        const indexDir = indexDirFor(root)
+        const index = loadIndexOrThrow(root)
+        if ((args?.op || 'list') === 'list') {
+          const findings = index.findings || {}
+          const summary = summarizeDecisions(findings.candidates || [])
+          const lines = [`候选决定：已确认 ${summary.accepted}，已拒绝 ${summary.rejected}，待映射 ${summary.pending_mapping}，待确认 ${summary.pending}，需复核 ${summary.needs_review}`]
+          for (const candidate of (findings.candidates || []).slice(0, 20)) lines.push(`- ${candidateId(candidate)} ${candidate.kind}「${candidate.label}」→ ${candidate.decision || 'pending'}${candidate.confirmed ? '（已确认）' : ''}`)
+          if ((findings.staleDecisions || []).length) lines.push(`需要复核的人工决定 ${findings.staleDecisions.length} 项：` + findings.staleDecisions.slice(0, 8).map(row => row.label).join('；'))
+          return { text: lines.join('\n') }
+        }
+        const candidate = findCandidate(index.findings, { candidateKey: args?.candidateKey, candidateId: args?.candidateId, kind: args?.kind, label: args?.label })
+        if (!candidate) throw error('没有这个候选；请先 materials_scan，或用 candidateKey / candidateId 指定', 'not_found')
+        const document = loadCandidateDecisions(indexDir)
+        const nextDocument = setCandidateDecision(document, { candidate, decision: args?.decision, reason: args?.reason })
+        saveCandidateDecisions(indexDir, nextDocument)
+        let findings = applyCandidateDecisions(index.findings, nextDocument)
+        findings.gaps = buildGaps(findings)
+        const draft = readDraftIfAny(root)
+        const readiness = await assessReadiness({ inventory: index.inventory, findings, draft, ...materialsReadinessOptions() })
+        saveMaterialsIndex({ dir: indexDir, inventory: index.inventory, findings, readiness, report: renderPrepReport({ inventory: index.inventory, findings, readiness }) })
+        const entry = nextDocument.decisions[candidateKey(candidate)]
+        return { text: `已记录候选决定：${candidate.kind}「${candidate.label}」→ ${entry.decision}${entry.reason ? '（理由：' + entry.reason + '）' : ''}\n候选决定：` + JSON.stringify(summarizeDecisions(findings.candidates)) }
+      }
+    })
+    scope.tools?.register({
       name: 'study_draft_preview',
-      description: '从已扫描的候选生成研究配置草案并预览 diff：只采用已确认且非待映射的候选，不自动批准计分冲突。',
+      description: '从已扫描的候选生成研究配置草案并预览 diff：已确认与待确认的候选会进入预览，拒绝/待映射的候选排除，不自动批准计分冲突。',
       parameters: { type: 'object', properties: { path: { type: 'string', description: '材料目录；省略则用会话当前目录' }, draftPath: { type: 'string', description: '已有研究定义路径，用于预览 diff' }, name: { type: 'string' }, studyId: { type: 'string' } }, additionalProperties: false },
       output: { schema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'], additionalProperties: false }, render: (_args, value) => [{ type: 'text', text: value.text }] },
       async execute(args, exec) {
         const actor = binding.agentActor(exec)
         const root = materialsRoot(actor, args?.path)
         const index = loadIndexOrThrow(root)
-        const draft = buildStudyDraft({ findings: index.findings, root, studyId: args?.studyId, name: args?.name })
-        const problems = validateStudyDraft(draft)
-        const lines = [`草案：${draft.name}（${draft.studyId}）`, `访视 ${draft.visits.length} 个；任务 ${draft.tasks.length} 个；编号样例 ${draft.participantId?.pattern || '无'}`]
-        if (problems.length) lines.push('草案问题：' + problems.join('；'))
-        if (args?.draftPath && existsSync(args.draftPath)) {
+        let draft = buildStudyDraft({ findings: index.findings, root, studyId: args?.studyId, name: args?.name })
+        const draftPath = args?.draftPath ? String(args.draftPath) : ''
+        const baseRevision = draftPath && existsSync(draftPath) ? studyDefinitionRevision(readFileSync(draftPath, 'utf8')) : null
+        let removed = []
+        const lines = []
+        if (baseRevision) {
           try {
-            const current = JSON.parse(readFileSync(args.draftPath, 'utf8'))
+            const current = JSON.parse(readFileSync(draftPath, 'utf8'))
+            const merged = mergeStudyDraft(current, draft)
+            draft = merged.draft
+            removed = merged.removed
             const rows = diffStudyDraft(current, draft)
-            lines.push(`与现有定义的差异 ${rows.length} 处` + (rows.length ? '：' + rows.slice(0, 10).map(row => `${row.path}`).join('；') : ''))
+            lines.push(`与现有定义的差异 ${rows.length} 处` + (rows.length ? '：' + rows.slice(0, 10).map(row => row.path).join('；') : ''))
+            if (removed.length) lines.push(`草案没有提到、更新时会保留的行 ${removed.length} 项：` + removed.slice(0, 10).map(row => `${row.kind}:${row.id}`).join('；'))
+            if (merged.kept.length) lines.push(`保留的已有配置：${merged.kept.join('、')}`)
           } catch (failure) { lines.push('现有定义读不了：' + failure.message) }
         }
-        lines.push('')
-        lines.push(JSON.stringify(draft, null, 2))
-        return { text: lines.join('\n') }
+        const preview = saveStudyDraftPreview({ dir: indexDirFor(root), draft, baseRevision, targetPath: draftPath || null, removed })
+        const problems = validateStudyDraft(draft)
+        const decisions = summarizeDecisions(index.findings?.candidates || [])
+        const head = [
+          `预览 ID：${preview.draftId}`,
+          `内容版本：${preview.revision}`,
+          `草案：${draft.name}（${draft.studyId}）`,
+          `访视 ${draft.visits.length} 个；任务 ${draft.tasks.length} 个；编号样例 ${draft.participantId?.pattern || '无'}`,
+          `候选决定：已确认 ${decisions.accepted}，待确认 ${decisions.pending}，待映射 ${decisions.pending_mapping}，需复核 ${decisions.needs_review}`,
+        ]
+        if (problems.length) head.push('草案问题：' + problems.join('；'))
+        const text = [...head, ...lines, '', JSON.stringify(draft, null, 2)].join('\n')
+        return { text }
       }
     })
     scope.tools?.register({
       name: 'study_draft_save',
-      description: '保存研究配置草案：默认独占创建；更新需要先预览得到的 revision，不覆盖未知变更。保存后仍需显式连接研究。',
+      description: '保存研究配置草案：默认独占创建；可用预览返回的 draftId + expectedRevision 保存同一内容；更新以现有定义为基准合并，不覆盖未知变更、不清空 plugins/路径/编号规则。',
       parameters: {
         type: 'object',
         properties: {
           path: { type: 'string', description: '材料目录；省略则用会话当前目录' },
           draftPath: { type: 'string', description: '研究定义要写到的绝对路径' },
           mode: { type: 'string', enum: ['create', 'update'] },
+          draftId: { type: 'string', description: 'study_draft_preview 返回的预览 ID' },
           expectedRevision: { type: 'string' },
           name: { type: 'string' },
           studyId: { type: 'string' },
@@ -675,17 +761,46 @@ export function apply(ctx, config = {}) {
         const index = loadIndexOrThrow(root)
         const draftPath = String(args?.draftPath || '')
         if (!path.isAbsolute(draftPath)) throw error('研究定义需要绝对路径', 'invalid')
-        const draft = buildStudyDraft({ findings: index.findings, root, studyId: args?.studyId, name: args?.name })
-        const result = writeStudyDraft({ path: draftPath, draft, mode: args?.mode || 'create', expectedRevision: args?.expectedRevision })
-        const problems = validateStudyDraft(draft)
-        return {
-          text: [
-            `${result.created ? '已创建' : '已更新'}研究定义：${result.path}`,
-            `revision：${result.revision}`,
-            problems.length ? '注意：草案仍有问题：' + problems.join('；') : '草案校验通过。',
-            '下一步：用 studyConnect 连接这个研究（需要绝对路径），连接只影响当前页面或会话。',
-          ].join('\n'),
+        const mode = args?.mode || 'create'
+        const indexDir = indexDirFor(root)
+        const preview = args?.draftId ? loadStudyDraftPreview(indexDir, String(args.draftId)) : null
+        if (args?.draftId && !preview) throw error('预览不存在或已过期，请重新预览：' + args.draftId, 'not_found')
+        if (preview?.targetPath && path.resolve(preview.targetPath) !== path.resolve(draftPath)) throw error('预览写的是另一个研究定义，请重新预览', 'dataset_conflict')
+        if (preview && args?.expectedRevision && args.expectedRevision !== preview.revision) throw error('预览内容已变化（expectedRevision 不匹配），请重新预览', 'dataset_conflict')
+        let draft
+        let removed = []
+        let fileRevision
+        if (preview) {
+          draft = preview.draft
+          removed = Array.isArray(preview.removed) ? preview.removed : []
+          if (mode !== 'create' && existsSync(draftPath)) {
+            const existingText = readFileSync(draftPath, 'utf8')
+            if (!preview.baseRevision || studyDefinitionRevision(existingText) !== preview.baseRevision) throw error('研究定义在预览后已被改动，请重新预览', 'dataset_conflict')
+            fileRevision = preview.baseRevision
+          }
+        } else {
+          draft = buildStudyDraft({ findings: index.findings, root, studyId: args?.studyId, name: args?.name })
+          if (mode !== 'create' && existsSync(draftPath)) {
+            try {
+              const current = JSON.parse(readFileSync(draftPath, 'utf8'))
+              const merged = mergeStudyDraft(current, draft)
+              draft = merged.draft
+              removed = merged.removed
+            } catch (failure) { throw error('现有研究定义读不了：' + failure.message, 'dataset_conflict') }
+            fileRevision = args?.expectedRevision
+          }
         }
+        const result = writeStudyDraft({ path: draftPath, draft, mode, expectedRevision: mode === 'create' ? undefined : fileRevision })
+        const problems = validateStudyDraft(draft)
+        const lines = [
+          `${result.created ? '已创建' : '已更新'}研究定义：${result.path}`,
+          `revision：${result.revision}`,
+        ]
+        if (preview) lines.push(`预览 ID：${preview.draftId}`)
+        if (removed.length) lines.push(`保留的已有行 ${removed.length} 项（未删除）：` + removed.slice(0, 10).map(row => `${row.kind}:${row.id}`).join('；'))
+        lines.push(problems.length ? '注意：草案仍有问题：' + problems.join('；') : '草案校验通过。')
+        lines.push('下一步：用 studyConnect 连接这个研究（需要绝对路径），连接只影响当前页面或会话。')
+        return { text: lines.join('\n') }
       }
     })
 
