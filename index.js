@@ -251,7 +251,7 @@ export function apply(ctx, config = {}) {
         name = String(data.action || '')
         payload = data.payload || {}
       } else throw error('只接受 GET 与 POST')
-      const actor = binding.pageActor({ req, pageId: payload.pageId })
+      const actor = binding.pageActor({ req, pageId: payload.pageId, workspaceId: payload.workspaceId, sessionId: payload.sessionId })
       send(res, 200, { ok: true, data: await action(actor, name, payload) })
     } catch (e) {
       const status = statusFor(e) || 500
