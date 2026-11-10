@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto'
 import { loadStudyContext } from './study-context.mjs'
 import { buildSnapshot, mutate, summaryText, exportReport } from './generic-scan.mjs'
 import { hostBinding, bindingStatus, BindingError } from '../research-core/host.mjs'
+import { agentProjection, resolvePrivacyPolicy, sanitizeError } from '../research-core/privacy-projection.mjs'
 import { openResearchData } from '../research-core/data.mjs'
 import {
   scanMaterials, extractFindings, buildGaps, buildStudyDraft, assessReadiness,
@@ -45,6 +46,24 @@ export function apply(ctx, config = {}) {
       : { ...config, studyPath: selectedPath }
   }
   const context = () => activeContext
+
+  /** 07：材料摘要工具只把文本摘要交给 agentProjection；模式只读服务/配置，工具参数不能放宽。 */
+  function privacyPolicy() {
+    return resolvePrivacyPolicy({ ctx, config, study: context(), pluginKey: 'ops' })
+  }
+  function currentPrivacyMode() {
+    try { return privacyPolicy().mode } catch { return 'strict-local' }
+  }
+  function privacyOptions(policy) {
+    return { sessionTools: policy.sessionTools, allowedColumns: policy.allowedColumns, maxBytes: policy.maxBytes, attachments: policy.attachments }
+  }
+  function projectToolText(kind, text) {
+    const policy = privacyPolicy()
+    return agentProjection(kind, text, policy.mode, privacyOptions(policy))
+  }
+  function projectedErrorText(error) {
+    return JSON.stringify(sanitizeError(error, { mode: currentPrivacyMode() }), null, 2)
+  }
 
   const binding = hostBinding(ctx, {
     plugin: 'study-ops',
@@ -255,7 +274,8 @@ export function apply(ctx, config = {}) {
       send(res, 200, { ok: true, data: await action(actor, name, payload) })
     } catch (e) {
       const status = statusFor(e) || 500
-      send(res, status, { ok: false, error: { code: e.code || 'error', message: String(e.message || e), details: e.details } })
+      // 07：错误信息去路径/编号；details 与异常栈不返回。
+      send(res, status, { ok: false, error: sanitizeError(e, { mode: currentPrivacyMode() }) })
     }
   }
 
@@ -603,21 +623,25 @@ export function apply(ctx, config = {}) {
       parameters: { type: 'object', properties: { path: { type: 'string', description: '材料目录；省略则用会话当前目录' }, retry: { type: 'boolean', description: '强制重解析失败/未解析文件（环境补齐后使用）' } }, additionalProperties: false },
       output: { schema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'], additionalProperties: false }, render: (_args, value) => [{ type: 'text', text: value.text }] },
       async execute(args, exec) {
-        const actor = binding.agentActor(exec)
-        const root = materialsRoot(actor, args?.path)
-        if (!existsSync(root)) throw error('材料目录不存在：' + root, 'not_found')
-        const indexDir = indexDirFor(root)
-        const previous = loadMaterialsIndex(indexDir).inventory
-        const inventory = await scanMaterials({ root, previous, python: materialsPython(), maxFiles: 2000, maxDepth: 6, timeoutMs: 60000, retryUnparsed: args?.retry === true })
-        // 重新扫描按来源指纹保留仍有效的人工决定；来源变化只标 needs_review，不静默忘记。
-        const decisions = loadCandidateDecisions(indexDir)
-        let findings = extractFindings(inventory)
-        findings = applyCandidateDecisions(findings, decisions)
-        findings.gaps = buildGaps(findings)
-        const draft = readDraftIfAny(root)
-        const readiness = await assessReadiness({ inventory, findings, draft, ...materialsReadinessOptions() })
-        saveMaterialsIndex({ dir: indexDir, inventory, findings, readiness, report: renderPrepReport({ inventory, findings, readiness }) })
-        return { text: materialSummary(inventory, findings, readiness) }
+        try {
+          const actor = binding.agentActor(exec)
+          const root = materialsRoot(actor, args?.path)
+          if (!existsSync(root)) throw error('材料目录不存在：' + root, 'not_found')
+          const indexDir = indexDirFor(root)
+          const previous = loadMaterialsIndex(indexDir).inventory
+          const inventory = await scanMaterials({ root, previous, python: materialsPython(), maxFiles: 2000, maxDepth: 6, timeoutMs: 60000, retryUnparsed: args?.retry === true })
+          // 重新扫描按来源指纹保留仍有效的人工决定；来源变化只标 needs_review，不静默忘记。
+          const decisions = loadCandidateDecisions(indexDir)
+          let findings = extractFindings(inventory)
+          findings = applyCandidateDecisions(findings, decisions)
+          findings.gaps = buildGaps(findings)
+          const draft = readDraftIfAny(root)
+          const readiness = await assessReadiness({ inventory, findings, draft, ...materialsReadinessOptions() })
+          saveMaterialsIndex({ dir: indexDir, inventory, findings, readiness, report: renderPrepReport({ inventory, findings, readiness }) })
+          return { text: projectToolText('materials_scan', materialSummary(inventory, findings, readiness)) }
+        } catch (scanError) {
+          return { text: projectedErrorText(scanError) }
+        }
       }
     })
     scope.tools?.register({
@@ -626,28 +650,32 @@ export function apply(ctx, config = {}) {
       parameters: { type: 'object', properties: { path: { type: 'string', description: '材料目录；省略则用会话当前目录' }, focus: { type: 'string', enum: ['all', 'blockers', 'pending'] } }, additionalProperties: false },
       output: { schema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'], additionalProperties: false }, render: (_args, value) => [{ type: 'text', text: value.text }] },
       async execute(args, exec) {
-        const actor = binding.agentActor(exec)
-        const root = materialsRoot(actor, args?.path)
-        const index = loadIndexOrThrow(root)
-        const draft = readDraftIfAny(root)
-        const readiness = await assessReadiness({ inventory: index.inventory, findings: index.findings, draft, ...materialsReadinessOptions() })
-        const focus = args?.focus || 'all'
-        const lines = []
-        for (const [area, value] of Object.entries(readiness.areas)) lines.push(`- ${area}：${value.state}`)
-        for (const [stage, value] of Object.entries(readiness.stages || {})) {
-          const reason = (value.blockers || []).map(row => row.text).join('；')
-          lines.push(`- 阶段 ${stage}：${value.state}${reason ? `（阻断：${reason}）` : ''}`)
+        try {
+          const actor = binding.agentActor(exec)
+          const root = materialsRoot(actor, args?.path)
+          const index = loadIndexOrThrow(root)
+          const draft = readDraftIfAny(root)
+          const readiness = await assessReadiness({ inventory: index.inventory, findings: index.findings, draft, ...materialsReadinessOptions() })
+          const focus = args?.focus || 'all'
+          const lines = []
+          for (const [area, value] of Object.entries(readiness.areas)) lines.push(`- ${area}：${value.state}`)
+          for (const [stage, value] of Object.entries(readiness.stages || {})) {
+            const reason = (value.blockers || []).map(row => row.text).join('；')
+            lines.push(`- 阶段 ${stage}：${value.state}${reason ? `（阻断：${reason}）` : ''}`)
+          }
+          lines.push(`可以开始：${readiness.canStart ? '是' : '否'}`)
+          if (focus !== 'pending') {
+            lines.push(`阻断项 ${readiness.blockers.length} 项`)
+            for (const row of readiness.blockers.slice(0, 10)) lines.push(`- [${row.category}] ${row.text}`)
+          }
+          if (focus !== 'blockers') {
+            lines.push(`待核实 ${readiness.pending.length} 项`)
+            for (const row of readiness.pending.slice(0, 10)) lines.push(`- [${row.kind}] ${row.text}`)
+          }
+          return { text: projectToolText('prep_readiness', lines.join('\n')) }
+        } catch (readinessError) {
+          return { text: projectedErrorText(readinessError) }
         }
-        lines.push(`可以开始：${readiness.canStart ? '是' : '否'}`)
-        if (focus !== 'pending') {
-          lines.push(`阻断项 ${readiness.blockers.length} 项`)
-          for (const row of readiness.blockers.slice(0, 10)) lines.push(`- [${row.category}] ${row.text}`)
-        }
-        if (focus !== 'blockers') {
-          lines.push(`待核实 ${readiness.pending.length} 项`)
-          for (const row of readiness.pending.slice(0, 10)) lines.push(`- [${row.kind}] ${row.text}`)
-        }
-        return { text: lines.join('\n') }
       }
     })
     scope.tools?.register({
@@ -680,7 +708,7 @@ export function apply(ctx, config = {}) {
           const lines = [`候选决定：已确认 ${summary.accepted}，已拒绝 ${summary.rejected}，待映射 ${summary.pending_mapping}，待确认 ${summary.pending}，需复核 ${summary.needs_review}`]
           for (const candidate of (findings.candidates || []).slice(0, 20)) lines.push(`- ${candidateId(candidate)} ${candidate.kind}「${candidate.label}」→ ${candidate.decision || 'pending'}${candidate.confirmed ? '（已确认）' : ''}`)
           if ((findings.staleDecisions || []).length) lines.push(`需要复核的人工决定 ${findings.staleDecisions.length} 项：` + findings.staleDecisions.slice(0, 8).map(row => row.label).join('；'))
-          return { text: lines.join('\n') }
+          return { text: projectToolText('materials_decisions', lines.join('\n')) }
         }
         const candidate = findCandidate(index.findings, { candidateKey: args?.candidateKey, candidateId: args?.candidateId, kind: args?.kind, label: args?.label })
         if (!candidate) throw error('没有这个候选；请先 materials_scan，或用 candidateKey / candidateId 指定', 'not_found')
