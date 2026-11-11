@@ -5,9 +5,9 @@ import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { loadStudyContext } from './study-context.mjs'
 import { buildSnapshot, mutate, summaryText, exportReport } from './generic-scan.mjs'
-import { hostBinding, bindingStatus, BindingError } from '../research-core/host.mjs'
-import { agentProjection, resolvePrivacyPolicy, sanitizeError } from '../research-core/privacy-projection.mjs'
-import { openResearchData } from '../research-core/data.mjs'
+import { hostBinding, bindingStatus, BindingError } from '@local/research-core/host'
+import { agentProjection, resolvePrivacyPolicy, sanitizeError } from '@local/research-core/privacy-projection'
+import { openResearchData } from '@local/research-core/data'
 import {
   scanMaterials, extractFindings, buildGaps, buildStudyDraft, assessReadiness,
   saveMaterialsIndex, loadMaterialsIndex, renderPrepReport, writeStudyDraft,
@@ -15,8 +15,8 @@ import {
   setCandidateDecision, applyCandidateDecisions, findCandidate, summarizeDecisions,
   saveStudyDraftPreview, loadStudyDraftPreview, mergeStudyDraft, studyDefinitionRevision,
   candidateKey, candidateId,
-} from '../research-core/materials.mjs'
-import { openFlow } from '../research-core/flow.mjs'
+} from '@local/research-core/materials'
+import { openFlow } from '@local/research-core/flow'
 
 const ROUTE = '/api/study-ops'
 const VERSION = '0.3.1'
