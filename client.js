@@ -815,7 +815,7 @@ window.__ModuleLoader__.load({id:'@local/study-ops',factory(require){
           h('div',{className:'so-actions'},h('button',{className:'so-btn so-btn-quiet so-btn-sm',type:'button',disabled:busy,onClick:onRefresh},'刷新核心投影'))))
   }
   function Panel({openPanel}){
-    const [snap,setSnap]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[filter,setFilter]=useState('all'),[notice,setNotice]=useState(''),[dismissed,setDismissed]=useState(false),[query,setQuery]=useState(''),[stale,setStale]=useState(false),[core,setCore]=useState(null),[cellDetail,setCellDetail]=useState(null),[reason,setReason]=useState(''),[coreAt,setCoreAt]=useState(''),[coreError,setCoreError]=useState(''),[view,setView]=useState(readView())
+    const [snap,setSnap]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[filter,setFilter]=useState('all'),[notice,setNotice]=useState(''),[dismissed,setDismissed]=useState(false),[query,setQuery]=useState(''),[stale,setStale]=useState(false),[staleKind,setStaleKind]=useState(''),[core,setCore]=useState(null),[cellDetail,setCellDetail]=useState(null),[reason,setReason]=useState(''),[coreAt,setCoreAt]=useState(''),[coreError,setCoreError]=useState(''),[view,setView]=useState(readView())
     function switchView(next){setView(next);try{localStorage.setItem('dsh:research:run-view:v1',next)}catch{/* 忽略 */}}
     async function loadCore(){
       try{const next=await call('flowProjection');setCore(next);setCoreError('');setCoreAt(new Date().toISOString())}
@@ -862,9 +862,9 @@ window.__ModuleLoader__.load({id:'@local/study-ops',factory(require){
       if(openPanel)openPanel('scale-desk')
       else setNotice('已在本地记录焦点；打开「量表计分」即可看到提示')
     }
-    const load=useCallback(async(force=false)=>{setBusy(true);setError('');try{const next=await call(force?'refresh':'status',force?{forceQc:true}:undefined);setSnap(next);setStale(false);await loadCore()}catch(e){if(['binding_conflict','binding_required','study_missing'].includes(e.code))setStale(true);setError(e.message)}finally{setBusy(false)}},[snap?.binding?.bindingRevision])
+    const load=useCallback(async(force=false)=>{setBusy(true);setError('');try{const next=await call(force?'refresh':'status',force?{forceQc:true}:undefined);setSnap(next);setStale(false);await loadCore()}catch(e){if(['binding_conflict','binding_required','study_missing'].includes(e.code)){setStale(true);setStaleKind(e.code)};setError(e.message)}finally{setBusy(false)}},[snap?.binding?.bindingRevision])
     useEffect(()=>{load()},[])
-    async function save(action,payload){setBusy(true);setError('');try{const result=await call(action,{...payload,stateRevision:snap.stateRevision});try{setSnap(await call('status'))}catch(e){setNotice('已保存；状态刷新失败，请刷新后再操作：'+e.message)}return result}catch(e){if(['binding_conflict','binding_required','study_missing'].includes(e.code))setStale(true);setError(e.message);throw e}finally{setBusy(false)}}
+    async function save(action,payload){setBusy(true);setError('');try{const result=await call(action,{...payload,stateRevision:snap.stateRevision});try{setSnap(await call('status'))}catch(e){setNotice('已保存；状态刷新失败，请刷新后再操作：'+e.message)}return result}catch(e){if(['binding_conflict','binding_required','study_missing'].includes(e.code)){setStale(true);setStaleKind(e.code)};setError(e.message);throw e}finally{setBusy(false)}}
     const click=(action,payload)=>()=>{save(action,payload).catch(()=>{})}
     const header=h('header',{className:'so-pagehead'},
       h('div',{className:'so-headtext'},h('h1',null,'实验运行台'),h('p',{className:'so-pagemeta'},(snap?.study.name||'当前研究')+(snap?.generatedAt?' · 更新于 '+fmtTime(snap.generatedAt):''))),
@@ -934,7 +934,7 @@ window.__ModuleLoader__.load({id:'@local/study-ops',factory(require){
       header,
       h(ConnectBar,{snap,busy,onDone:()=>load()}),
       view==='legacy'?null:h(CoreSection,{core,busy,onRefresh:loadCore,detail:cellDetail,reason,setReason,onOpen:openCell,onAdjudicate:adjudicateCell,onCancel:cancelCell,onOpenPanel:openScalePanel,onFollowup:markFollowup,coreAt,coreError}),
-      stale?h('div',{className:'so-alert so-error',role:'alert'},'研究已变化：当前页面的绑定已过期，写入会被拒绝。请先导出需要的草稿，再重新加载或连接研究。',h('button',{className:'so-btn so-btn-quiet so-btn-sm',type:'button',onClick:()=>{newPage();(async()=>{try{await call('studyConnect',{studyPath:snap.study&&snap.study.path})}catch(e){setError(e.message)}finally{load()}})()}},'重新加载研究')):null,
+      stale?h('div',{className:'so-alert so-error',role:'alert'},(staleKind==='binding_required'?'页面绑定已失效：点“重新加载研究”后即可写入；草稿不会丢失。':'研究已变化：当前页面的绑定已过期，写入会被拒绝。请先导出需要的草稿，再重新加载或连接研究。'),h('button',{className:'so-btn so-btn-quiet so-btn-sm',type:'button',onClick:()=>{newPage();(async()=>{try{await call('studyConnect',{studyPath:snap.study&&snap.study.path})}catch(e){setError(e.message)}finally{load()}})()}},'重新加载研究')):null,
       error?h('div',{className:'so-alert so-error',role:'alert'},error):null,
       notice?h('div',{className:'so-alert so-note',role:'status'},notice):null,
       h('div',{className:'so-spine'},
