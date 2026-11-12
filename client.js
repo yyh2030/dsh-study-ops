@@ -637,7 +637,7 @@ window.__ModuleLoader__.load({id:'@local/study-ops',factory(require){
     const headers={'x-study-ops':'1',...ticket.headers}
     const url='/api/study-ops'+(payload===undefined?'?action='+encodeURIComponent(action):'')
     if(payload!==undefined)headers['content-type']='application/json'
-    const res=await fetch(url,{method:payload===undefined?'GET':'POST',headers,...(payload===undefined?{}:{body:JSON.stringify({action,payload:{...payload,...ticket.body,binding:ticket.token}})})})
+    const res=await fetch(url,{method:payload===undefined?'GET':'POST',headers,...(payload===undefined?{}:{body:JSON.stringify({action,payload:{...payload,...ticket.body}})})})
     const data=await res.json()
     if(!res.ok||!data.ok){const failure=new Error(data.error?.message||'请求失败');failure.code=data.error?.code;failure.details=data.error?.details;throw failure}
     // 晚到的旧响应不能把当前页面状态改回旧研究/旧工作区（按本次 capture 的绑定核对）。
