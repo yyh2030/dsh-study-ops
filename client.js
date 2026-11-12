@@ -880,7 +880,7 @@ window.__ModuleLoader__.load({id:'@local/study-ops',factory(require){
     const slotList=snap.subjects.flatMap(s=>Object.values(s.slots))
     const dueSlots=slotList.filter(x=>!['not_due','not_applicable','na'].includes(x.state))
     const doneSlots=dueSlots.filter(x=>x.state==='ok')
-    const groups=Object.entries(snap.enrollment.groups||{})
+
     const followups=snap.subjects.flatMap(s=>(s.followups||[]).filter(f=>['due','overdue'].includes(f.state)).map(f=>({...f,subject:s.id})))
     const schedule=(snap.schedule||[]).slice().sort((a,b)=>(a.date+a.start).localeCompare(b.date+b.start))
     const tasks=[
@@ -893,6 +893,10 @@ window.__ModuleLoader__.load({id:'@local/study-ops',factory(require){
     // 顶部的四个指标按视图取数：核心优先（core）用已提交版本，其余用旧文件扫描。
     const coreReady=Boolean(core&&core.totals&&(core.totals.participants||0)>0)
     const useCore=view==='core'&&coreReady
+    // 分组卡与核心投影同源：core 视图优先用已提交代次的 enrolled 分组，避免旧文件分母把登记未入组也算进去。
+    const coreGroups=useCore&&core&&Array.isArray(core.groups)&&core.groups.length?core.groups:null
+    const groups=coreGroups?coreGroups.map(group=>[group.group,group.enrolled]):Object.entries(snap.enrollment.groups||{})
+    const groupSex=coreGroups?(name=>{const found=coreGroups.find(group=>String(group.group)===String(name));return found?{male:found.sex?.male||0,female:found.sex?.female||0,unknown:found.sex?.unknown||0}:null}):(name=>snap.demographics?.present?(snap.demographics.byGroup?.[name]||{male:0,female:0,unknown:0}):null)
     const coreDone=coreReady?((core.matrix||[]).reduce((sum,row)=>sum+Object.values(row.slots||{}).filter(slot=>slot&&slot.collection==='complete').length,0)):0
     const coreBad=coreReady?(core.anomalies||[]).length:0
     const coreFollow=coreReady?(((core.followupCounts||{}).due||0)+((core.followupCounts||{}).overdue||0)):0
@@ -949,9 +953,9 @@ window.__ModuleLoader__.load({id:'@local/study-ops',factory(require){
         h('div',{className:'so-metric'},h('span',{className:'so-metric-name'},'任务完成'),h('span',{className:'so-metric-value'},useCore?coreDone:doneSlots.length,h('small',null,'份')),h('span',{className:'so-metric-scope'},useCore?'核心矩阵里采集状态为「完成」的格'+coreNote:'已完成 '+doneSlots.length+' / 应完成 '+dueSlots.length+'；不含未到期与不适用')),
         h('div',{className:'so-metric','data-tone':(useCore?coreBad:snap.counts.bad+snap.counts.warn)>0?'bad':'ok'},h('span',{className:'so-metric-name'},'异常'),h('span',{className:'so-metric-value'},useCore?coreBad:snap.counts.bad+snap.counts.warn,h('small',null,'条')),h('span',{className:'so-metric-scope'},useCore?'冲突 / 已到期缺失 / 质量不合格'+coreNote:'高 '+snap.counts.bad+' 条 · 中 '+snap.counts.warn+' 条')),
         h('div',{className:'so-metric'},h('span',{className:'so-metric-name'},'随访待办'),h('span',{className:'so-metric-value'},useCore?coreFollow:snap.counts.followupDue,h('small',null,'项')),h('span',{className:'so-metric-scope'},useCore?'核心随访里「到期 + 逾期」'+coreNote:'到期或逾期；每人按随访规则计'))),
-      h('section',{className:'so-block'},h('div',{className:'so-blockhead'},h('h2',null,'分组进度'),h('p',{className:'so-blocknote'},'按入组规则统计；未设置目标人数时不显示进度。'+(view==='core'?' · 旧文件来源':''))),
+      h('section',{className:'so-block'},h('div',{className:'so-blockhead'},h('h2',null,'分组进度'),h('p',{className:'so-blocknote'},'按入组规则统计；未设置目标人数时不显示进度。'+(coreGroups?' · 核心已入组':' · 旧文件来源'))),
         groups.length?h('div',{className:'so-groupgrid'},groups.map(([name,n])=>{
-          const sex=snap.demographics?.present?(snap.demographics.byGroup?.[name]||{male:0,female:0,unknown:0}):null
+          const sex=groupSex(name)
           return h('div',{key:name,className:'so-groupcard'},
             h('div',{className:'so-groupname'},groupName(name),name?h('span',null,'组'):null),
             h('div',{className:'so-groupcount'},n,h('small',null,'人已入组')),
