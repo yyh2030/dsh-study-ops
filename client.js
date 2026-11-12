@@ -319,6 +319,9 @@ const DSH_RESEARCH_CLIENT_IDENTITY = (function () {
       ensure()
       const result = { pageId, bindingRevision: revision }
       if (workspace && workspace.id) result.workspaceId = workspace.id
+      // 写入令牌必须随请求体发送：连接/读取响应会 remember() 令牌，但只有 body 带上它，
+      // 服务端 assertWrite 才会认为这是当前页面的绑定（否则页面永远 binding_required）。
+      if (binding && binding.token) result.binding = binding.token
       return result
     }
 
@@ -433,6 +436,7 @@ const DSH_RESEARCH_CLIENT_IDENTITY = (function () {
   global.__DSH_RESEARCH_CLIENT_IDENTITY__ = DSH_RESEARCH_CLIENT_IDENTITY
 })(typeof window !== 'undefined' ? window : globalThis)
 /* @dsh-generated: client-identity prelude end */
+
 
 
 
@@ -930,7 +934,7 @@ window.__ModuleLoader__.load({id:'@local/study-ops',factory(require){
       header,
       h(ConnectBar,{snap,busy,onDone:()=>load()}),
       view==='legacy'?null:h(CoreSection,{core,busy,onRefresh:loadCore,detail:cellDetail,reason,setReason,onOpen:openCell,onAdjudicate:adjudicateCell,onCancel:cancelCell,onOpenPanel:openScalePanel,onFollowup:markFollowup,coreAt,coreError}),
-      stale?h('div',{className:'so-alert so-error',role:'alert'},'研究已变化：当前页面的绑定已过期，写入会被拒绝。请先导出需要的草稿，再重新加载或连接研究。',h('button',{className:'so-btn so-btn-quiet so-btn-sm',type:'button',onClick:()=>{newPage();load()}},'重新加载研究')):null,
+      stale?h('div',{className:'so-alert so-error',role:'alert'},'研究已变化：当前页面的绑定已过期，写入会被拒绝。请先导出需要的草稿，再重新加载或连接研究。',h('button',{className:'so-btn so-btn-quiet so-btn-sm',type:'button',onClick:()=>{newPage();(async()=>{try{await call('studyConnect',{studyPath:snap.study&&snap.study.path})}catch(e){setError(e.message)}finally{load()}})()}},'重新加载研究')):null,
       error?h('div',{className:'so-alert so-error',role:'alert'},error):null,
       notice?h('div',{className:'so-alert so-note',role:'status'},notice):null,
       h('div',{className:'so-spine'},
