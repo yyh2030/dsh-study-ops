@@ -19,8 +19,8 @@ import {
 import { openFlow } from '@local/research-core/flow'
 
 const ROUTE = '/api/study-ops'
-const VERSION = '0.3.1'
-const READ_ACTIONS = new Set(['status', 'subject', 'capabilities', 'flowProjection'])
+const VERSION = '0.3.2'
+const READ_ACTIONS = new Set(['status', 'subject', 'capabilities', 'flowProjection', 'studyChoices'])
 function send(res, status, payload) { res.statusCode = status; res.setHeader('content-type', 'application/json; charset=utf-8'); res.setHeader('cache-control', 'no-store'); res.setHeader('x-content-type-options', 'nosniff'); res.end(JSON.stringify(payload)) }
 function body(req) { return new Promise((resolve, reject) => { let size = 0; const chunks = []; req.on('data', chunk => { size += chunk.length; if (size > 1048576) { reject(Object.assign(new Error('请求体过大'), { code: 'invalid' })); return } chunks.push(chunk) }); req.on('end', () => { try { resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {}) } catch { reject(Object.assign(new Error('请求体不是合法 JSON'), { code: 'invalid' })) } }); req.on('error', reject) }) }
 const error = (message, code = 'invalid') => Object.assign(new Error(message), { code })
@@ -229,6 +229,13 @@ export function apply(ctx, config = {}) {
       })
       return { ...data, binding: view, study: context().identity }
     }
+    if (name === 'studyChoices') return binding.studyChoices(actor)
+    if (name === 'studyDiscover') return binding.discoverStudy(payload.dir)
+    if (name === 'studyRelocate') {
+      const view = binding.relocateStudy(actor, payload)
+      const active = await binding.activate(actor)
+      return { study: context().identity, binding: active, connected: view, relocated: view.relocated }
+    }
     if (name === 'studyConnect' || name === 'studyCreate') {
       const view = binding.connect(actor, name === 'studyCreate' ? { ...payload, create: true } : payload)
       const active = await binding.activate(actor)
@@ -263,7 +270,7 @@ export function apply(ctx, config = {}) {
       let name, payload
       if (req.method === 'GET') {
         name = url.searchParams.get('action') || 'status'
-        if (!['status', 'subject', 'capabilities', 'flowProjection'].includes(name)) throw error('写入和刷新操作请使用 POST')
+        if (!['status', 'subject', 'capabilities', 'flowProjection', 'studyChoices'].includes(name)) throw error('写入和刷新操作请使用 POST')
         payload = Object.fromEntries(url.searchParams)
       } else if (req.method === 'POST') {
         const data = await body(req)
