@@ -1186,6 +1186,7 @@ window.__ModuleLoader__.load({id:'@local/study-ops',factory(require){
     const header=h('header',{className:'so-pagehead'},
       h('div',{className:'so-headtext'},h('h1',null,'实验运行台'),h('p',{className:'so-pagemeta'},(snap?.study.name||'当前研究')+(snap?.generatedAt?' · 更新于 '+fmtTime(snap.generatedAt):''))),
       h('div',{className:'so-actions'},
+        h('button',{className:'so-btn so-btn-quiet',type:'button',title:'共享研究选择器 v2（2026-11-14）',onClick:openPickerFromButton},'研究切换'),
         h('div',{className:'so-filter',role:'group','aria-label':'数据视图'},
           h('button',{type:'button','aria-pressed':view==='both',onClick:()=>switchView('both')},'并列'),
           h('button',{type:'button','aria-pressed':view==='core',onClick:()=>switchView('core')},'核心'),
@@ -1306,6 +1307,22 @@ window.__ModuleLoader__.load({id:'@local/study-ops',factory(require){
       h('div',{className:'so-foot'},h('span',null,'更新于 '+fmtTime(snap.generatedAt)),h('span',null,'状态版本 '+snap.stateRevision),h('span',null,'规则 '+(snap.ruleVersion||'—')))
     )
     return h('div',{className:'so-root'},body)
+  }
+  function openPickerFromButton() {
+    try {
+      const ui = (hostCtx && hostCtx.get && hostCtx.get('uiWorkspace')) || (hostCtx && hostCtx.uiWorkspace)
+      const factory = window.__DSH_RESEARCH_PICKER__
+      if (!factory) throw new Error('共享选择器模块未加载')
+      const picker = factory.createStudyPicker({
+        plugin: 'study-ops', route: '/api/study-ops',
+        headers: () => ({ 'x-study-ops': '1', ...identity.headers() }),
+        pickDirectory: ui && typeof ui.pickDirectory === 'function' ? () => ui.pickDirectory() : null,
+      })
+      picker.install()
+      picker.open()
+    } catch (error) {
+      try { window.alert('研究选择器不可用：' + (error && error.message ? error.message : String(error))) } catch { /* 无窗口 */ }
+    }
   }
   return {inject:['slots'],identity,apply(ctx){hostCtx=ctx;ctx.effect(()=>{const style=document.createElement('style');style.textContent=CSS;document.head.appendChild(style);return()=>style.remove()},'study-ops: styles');
 try{const ui=(ctx.get&&ctx.get('uiWorkspace'))||ctx.uiWorkspace;window.__DSH_RESEARCH_PICKER__&&window.__DSH_RESEARCH_PICKER__.createStudyPicker({plugin:'study-ops',route:'/api/study-ops',headers:()=>({'x-study-ops':'1',...identity.headers()}),pickDirectory:ui&&typeof ui.pickDirectory==='function'?()=>ui.pickDirectory():null}).install()}catch(error){console.warn('[study-ops] study picker not installed',error)}
