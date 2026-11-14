@@ -270,3 +270,8 @@ ode --check + 全套 168/168。
 - 量表计分/人口学录入：按钮从面板最上方移到各自头部右侧，与运行台、分析直通一致。
 - 完全移除浮动按钮（自动 install 与点击时 install 都去掉），切出插件不再残留。
 - 四插件只保留面板头部一个“研究切换”入口。
+## 2026-11-14 · 05 验收矩阵与仓库同步
+
+- 03 矩阵阶段二按实际证据更新：SW-01/02/03/04/05/06/08/11/12 通过，SW-07/09/10 标注部分；
+- 五个插件 README 版本与 package 对齐（core 1.6.0、study-ops 0.3.2、scale 0.3.2、demographic 1.2.1、analysis 0.5.2）；
+- research-core package.files 补入 client-study-picker.mjs 与同步脚本。

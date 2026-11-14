@@ -4,7 +4,7 @@
 
 A research plugin written for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`): the experiment operations desk. It reads the participant table, visit task records, scheduling and follow-up rules into one progress board you can watch every day.
 
-Version 0.3.0 · Requires DSH ≥ 0.2.2-rc.1 · MIT license · Depends on [`@local/research-core`](https://github.com/yyh2030/dsh-research-core)
+Version 0.3.2 · Requires DSH ≥ 0.2.2-rc.1 · MIT license · Depends on [`@local/research-core`](https://github.com/yyh2030/dsh-research-core)
 
 ## Why it exists
 
