@@ -1327,13 +1327,11 @@ window.__ModuleLoader__.load({id:'@local/study-ops',factory(require){
         headers: () => ({ 'x-study-ops': '1', ...identity.headers() }),
         pickDirectory: ui && typeof ui.pickDirectory === 'function' ? () => ui.pickDirectory() : null,
       })
-      picker.install()
       picker.open()
     } catch (error) {
       try { window.alert('研究选择器不可用：' + (error && error.message ? error.message : String(error))) } catch { /* 无窗口 */ }
     }
   }
   return {inject:['slots'],identity,apply(ctx){hostCtx=ctx;ctx.effect(()=>{const style=document.createElement('style');style.textContent=CSS;document.head.appendChild(style);return()=>style.remove()},'study-ops: styles');
-try{const ui=(ctx.get&&ctx.get('uiWorkspace'))||ctx.uiWorkspace;window.__DSH_RESEARCH_PICKER__&&window.__DSH_RESEARCH_PICKER__.createStudyPicker({plugin:'study-ops',route:'/api/study-ops',headers:()=>({'x-study-ops':'1',...identity.headers()}),pickDirectory:ui&&typeof ui.pickDirectory==='function'?()=>ui.pickDirectory():null}).install()}catch(error){console.warn('[study-ops] study picker not installed',error)}
 ctx.slots.inject('sidebar.panellist',()=>ctx.slots.register({name:'sidebar.panellist',id:'study-ops',order:31,label:'实验运行台'},()=>h('svg',{width:18,height:18,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:1.8,'aria-hidden':true},h('rect',{x:4,y:3,width:16,height:18,rx:3}),h('path',{d:'M8 8h8M8 12h8M8 16h5'}))));ctx.slots.inject('main',()=>ctx.slots.register({name:'main',key:'study-ops'},()=>h(Panel,{openPanel:id=>{try{ctx.get('layout')?.selectPanel?.(id)}catch{/* 没有布局服务时只保留焦点提示 */}}})))}}
 }})
