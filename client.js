@@ -522,6 +522,7 @@ function createStudyPicker(options) {
       el('div', { text: `当前页面：${binding.studyId || '未绑定'}` }),
       el('div', { text: `当前工作区：${scope.workspace ? (scope.workspace.path || scope.workspace.id || '已识别') : '未识别'}` }),
       el('div', { text: `当前会话：${scope.kind === 'agent' ? (scope.session || '已识别') : '页面切换不改变 Agent 研究'}` }),
+      el('div', { style: { color: '#726c62', fontSize: '12px' }, text: '在此研究工作区打开会话：暂不支持（宿主没有研究→工作区映射）；请在工作区新建会话。' }),
     )
     const list = el('div', { style: { maxHeight: '230px', overflow: 'auto', border: '1px solid #eceade', borderRadius: '6px', marginTop: '10px' } })
     if (!recent.length) list.append(el('div', { style: { padding: '12px', color: '#726c62' }, text: '暂无最近研究。选择研究文件夹或新建研究。' }))
@@ -701,7 +702,10 @@ function createStudyPicker(options) {
   }
 
   function close() {
-    if (panel) { panel.remove(); panel = null }
+    if (panel) {
+      if (panel.__onKey) document.removeEventListener('keydown', panel.__onKey)
+      panel.remove(); panel = null
+    }
   }
 
   function open() {
@@ -715,6 +719,9 @@ function createStudyPicker(options) {
       },
     })
     document.body.append(panel)
+    const onKey = event => { if (event.key === 'Escape') { event.preventDefault(); close() } }
+    document.addEventListener('keydown', onKey)
+    panel.__onKey = onKey
     refresh()
   }
 
@@ -752,6 +759,8 @@ const DSH_RESEARCH_PICKER = { createStudyPicker }
   global.__DSH_RESEARCH_PICKER__ = DSH_RESEARCH_PICKER
 })(typeof window !== 'undefined' ? window : globalThis)
 /* @dsh-generated: study-picker prelude end */
+
+
 
 
 
