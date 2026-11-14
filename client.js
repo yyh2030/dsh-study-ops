@@ -708,8 +708,8 @@ function createStudyPicker(options) {
     if (panel) { close(); return }
     panel = el('div', {
       style: {
-        position: 'fixed', top: '70px', right: '24px', width: '540px', maxWidth: 'calc(100vw - 48px)',
-        maxHeight: 'calc(100vh - 120px)', overflow: 'auto', zIndex: '2147483000', background: '#fbfaf6',
+        position: 'fixed', bottom: '108px', right: '24px', width: '540px', maxWidth: 'calc(100vw - 48px)',
+        maxHeight: 'calc(100vh - 200px)', overflow: 'auto', zIndex: '2147483000', background: '#fbfaf6',
         border: '1px solid #cdc7b7', borderRadius: '10px', padding: '14px', boxShadow: '0 18px 50px rgba(0,0,0,.22)',
         fontFamily: 'Cambria, "Noto Serif SC", serif', color: '#24221f', fontSize: '14px',
       },
@@ -720,10 +720,11 @@ function createStudyPicker(options) {
 
   function install() {
     if (root) return root
+    if (typeof window !== 'undefined' && window.__DSH_RESEARCH_PICKER_INSTANCE__) return window.__DSH_RESEARCH_PICKER_INSTANCE__
     if (!document.body || typeof document.body.appendChild !== 'function' || !document.createElement) return null
     root = el('button', {
       style: {
-        position: 'fixed', top: '18px', right: '26px', zIndex: '2147482000',
+        position: 'fixed', bottom: '64px', right: '24px', zIndex: '2147482000',
         height: '30px', padding: '0 12px', border: '1px solid #cdc7b7', borderRadius: '999px',
         background: '#fffefb', color: '#24221f', cursor: 'pointer', font: 'inherit', fontSize: '13px',
         boxShadow: '0 2px 10px rgba(0,0,0,.08)',
@@ -733,17 +734,32 @@ function createStudyPicker(options) {
     })
     root.addEventListener('click', open)
     document.body.append(root)
+    // 只在研究插件面板打开时显示；对话页不占用标题栏/正文空间。
+    const syncVisibility = () => {
+      let visible = false
+      try { visible = Boolean(document.querySelector('.so-pagehead,.sd-root,.dc-root,.ar-pagehead')) } catch { visible = false }
+      root.style.display = visible ? '' : 'none'
+      if (!visible && panel) close()
+    }
+    syncVisibility()
+    setInterval(syncVisibility, 800)
     refresh()
+    if (typeof window !== 'undefined') window.__DSH_RESEARCH_PICKER_INSTANCE__ = pickerApi
     return root
   }
 
-  return { install, open, close, refresh, get state() { return choices } }
+  const pickerApi = { install, open, close, refresh, get state() { return choices } }
+  return pickerApi
 }
 
 const DSH_RESEARCH_PICKER = { createStudyPicker }
   global.__DSH_RESEARCH_PICKER__ = DSH_RESEARCH_PICKER
 })(typeof window !== 'undefined' ? window : globalThis)
 /* @dsh-generated: study-picker prelude end */
+
+
+
+
 
 
 
@@ -1295,6 +1311,6 @@ window.__ModuleLoader__.load({id:'@local/study-ops',factory(require){
     return h('div',{className:'so-root'},body)
   }
   return {inject:['slots'],identity,apply(ctx){hostCtx=ctx;ctx.effect(()=>{const style=document.createElement('style');style.textContent=CSS;document.head.appendChild(style);return()=>style.remove()},'study-ops: styles');
-try{const ui=ctx.get&&ctx.get('uiWorkspace');window.__DSH_RESEARCH_PICKER__&&window.__DSH_RESEARCH_PICKER__.createStudyPicker({plugin:'study-ops',route:'/api/study-ops',headers:()=>({'x-study-ops':'1',...headers()}),pickDirectory:ui&&typeof ui.pickDirectory==='function'?()=>ui.pickDirectory():null}).install()}catch(error){console.warn('[study-ops] study picker not installed',error)}
+try{const ui=(ctx.get&&ctx.get('uiWorkspace'))||ctx.uiWorkspace;window.__DSH_RESEARCH_PICKER__&&window.__DSH_RESEARCH_PICKER__.createStudyPicker({plugin:'study-ops',route:'/api/study-ops',headers:()=>({'x-study-ops':'1',...identity.headers()}),pickDirectory:ui&&typeof ui.pickDirectory==='function'?()=>ui.pickDirectory():null}).install()}catch(error){console.warn('[study-ops] study picker not installed',error)}
 ctx.slots.inject('sidebar.panellist',()=>ctx.slots.register({name:'sidebar.panellist',id:'study-ops',order:31,label:'实验运行台'},()=>h('svg',{width:18,height:18,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:1.8,'aria-hidden':true},h('rect',{x:4,y:3,width:16,height:18,rx:3}),h('path',{d:'M8 8h8M8 12h8M8 16h5'}))));ctx.slots.inject('main',()=>ctx.slots.register({name:'main',key:'study-ops'},()=>h(Panel,{openPanel:id=>{try{ctx.get('layout')?.selectPanel?.(id)}catch{/* 没有布局服务时只保留焦点提示 */}}})))}}
 }})
