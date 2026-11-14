@@ -734,15 +734,11 @@ function createStudyPicker(options) {
     })
     root.addEventListener('click', open)
     document.body.append(root)
-    // 只在研究插件面板打开时显示；对话页不占用标题栏/正文空间。
-    const syncVisibility = () => {
-      let visible = false
-      try { visible = Boolean(document.querySelector('.so-pagehead,.sd-root,.dc-root,.ar-pagehead')) } catch { visible = false }
-      root.style.display = visible ? '' : 'none'
-      if (!visible && panel) close()
-    }
-    syncVisibility()
-    setInterval(syncVisibility, 800)
+    // 面板只在研究插件页打开时自动关闭；入口按钮始终可见，避免被误判为“消失”。
+    setInterval(() => {
+      if (!panel) return
+      try { if (!document.querySelector('.so-pagehead,.sd-root,.dc-root,.ar-pagehead')) close() } catch { close() }
+    }, 800)
     refresh()
     if (typeof window !== 'undefined') window.__DSH_RESEARCH_PICKER_INSTANCE__ = pickerApi
     return root
@@ -756,6 +752,7 @@ const DSH_RESEARCH_PICKER = { createStudyPicker }
   global.__DSH_RESEARCH_PICKER__ = DSH_RESEARCH_PICKER
 })(typeof window !== 'undefined' ? window : globalThis)
 /* @dsh-generated: study-picker prelude end */
+
 
 
 
