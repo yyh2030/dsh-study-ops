@@ -119,7 +119,7 @@ ode --check + 全套 168/168。
   - M09-E：`restorePreflight` 对错误实例、schemaVersion=2、不同 studyId、缺 backup.json、篡改数据文件（hash/digest）均返回 ok=false 且 <2s；`restore` 对预检失败抛 `source_invalid`（committed=false），不写当前数据根。
   - M09-F：记录同根就地 restore 的真实限制：只写 current.json，不更新 `transactions/study-pointer.json`；`head()` 取指针与 current 中较大的 revision，因此 restore 返回 `restored:true` 后读取仍是指针指向的切换后更高代次，`reconcile()` 会把 current 补回该代次。回退需另根恢复或先停写后换根，当前 API 没有重置提交指针的入口。
 - 验证：`cd D:\dsh-plugins\research-core; node --test "tests/*.test.mjs"` → **200 tests / 200 pass / 0 fail**（基线 194 + 新增 6，未改旧断言）；新文件单跑 6/6。
-- 范围：全部 mkdtemp/os.tmpdir 合成数据，`assertInsideTemp` 拒绝真实研究路径字样；未打开/复制/写入 D:\yyh-lab 或真实 study；未改生产代码；未 git commit/push。
+- 范围：全部 mkdtemp/os.tmpdir 合成数据，`assertInsideTemp` 拒绝真实研究路径字样；未打开/复制/写入 <data-root> 或真实 study；未改生产代码；未 git commit/push。
 
 ## 2026-11-11 · 09 合成端到端脚本（E2E）
 
@@ -136,7 +136,7 @@ ode --check + 全套 168/168。
   - SKIP-09-9：提醒创建/改期/解除/回执与手机状态属于 08 阶段、需要官方 gateway，按任务说明 skip 并写明原因，不用本地 stub 伪造。
 - **发现的问题（记录，不擅自改语义）**：`research-core/analysis.mjs` 的 `scoreByKey` 对同一 `(participantId, scaleId, waveId, subscaleKey)` 只保留第一条分数行；当重复提交的两行同 key 且被拒行（numericValue=null）在前时，即使核心已裁决选中另一 submission，分析表仍读到缺失。E2E-03 用 `t.diagnostic` 与显式断言记录该现状；E2E-05 用无歧义单一 submission 覆盖 source=core score 变量。修复建议：优先选 `selectedSubmissionId` 对应行或 numericValue 非空行，但本轮未改生产代码。
 - 验证：`cd D:\dsh-plugins\research-core; node --test "tests/*.test.mjs"` → **210 tests / 209 pass / 1 skipped / 0 fail**（基线 200 + 新增 10：9 pass + 1 skip）；新文件单跑同结果。未改旧断言，未删旧测试。
-- 范围/未覆盖：全部 mkdtemp 合成数据，`assertInsideTemp` 拒绝真实研究路径字样；未打开/复制/写入 D:\yyh-lab 或真实 study；未改生产代码；未 git commit/push。未覆盖实际 GUI 视觉/交互验收、真实提醒 gateway/手机端与真实跨进程 kill 崩溃（E2E-08 用坏锁与“同主机同启动实例、进程已退出”的锁记录模拟）。
+- 范围/未覆盖：全部 mkdtemp 合成数据，`assertInsideTemp` 拒绝真实研究路径字样；未打开/复制/写入 <data-root> 或真实 study；未改生产代码；未 git commit/push。未覆盖实际 GUI 视觉/交互验收、真实提醒 gateway/手机端与真实跨进程 kill 崩溃（E2E-08 用坏锁与“同主机同启动实例、进程已退出”的锁记录模拟）。
 
 ## 2026-11-11 · 09 E2E 发现并修复分数选择缺陷
 
@@ -244,6 +244,26 @@ ode --check + 全套 168/168。
 ## 2026-11-14 · 02 选择器可用性修复
 
 - 修复 headers
+## 2026-11-14 · debug follow-up：选择器/分析集/日期边界
+
+- research-core/client-study-picker.mjs：共享选择器 createAction 可配置，修正 demographic-coder 的 createStudy action；多配置无效项点击保留候选列表，缺失研究多配置重定位先释放 busy；open() 路径也注册并清理面板生命周期 timer，避免跨面板残留。
+- research-core/analysis.mjs：单条 observation 显式裁决撤销后不再把唯一未裁决行视作有效分数。
+- analysis-run/scheduler.mjs：比较 latest.exclusions 与旧 run 的 excludedIds 时做兼容归一，auto-state 丢失后同排除不重复补跑。
+- analysis-run/engine.py：节点 analysisSet 的 observations 按模块 required columns 的有效行计数，报告显示节点实际 analysisSet。
+- research-core/flow.mjs：observation eventDate 统一 normaliseDate；非法日期变为 unknown，不再让随访计算抛 Invalid time value。
+- 修复追加：共享 picker createAction/多配置无效项/重定位 busy 状态和 open() 生命周期清理；analysis-run 节点 analysisSet.observations 按模块有效行计数并在文本报告显示；scheduler 兼容旧 run 的 excludedIds；人口学入口显式使用 createStudy。
+- 验证：新增边界回归运行中；定时与 mobile gateway 仍按用户要求排除。
+
+## 2026-11-14 · debug follow-up 验证补充
+
+- 修复选择器共享预置：demographic-coder 创建动作使用 `createStudy`；多配置无效项保留候选列表；缺失研究重定位多配置释放 busy；直接 open() 也注册/清理生命周期 timer。
+- 修复 flow：非法 observation eventDate 归一为 unknown，随访投影不再抛 Invalid time value。
+- 修复 analysis：单条 observation 的裁决撤销不再被视为默认有效分数；节点 analysisSet.observations 按该模块有效列计数；文本报告显示节点 analysisSet。
+- 修复 scheduler：兼容旧 run 的 excludedIds 与新 exclusions 比较，auto-state 丢失时同排除不重复补跑。
+- 新增合成回归：单条裁决撤销、非法日期、FIX-04 observations；四插件选择器同步需重新构建并由隔离测试验证。
+- 定时与 mobile gateway 仍按用户范围排除。
+
+
 ## 2026-11-14 · 选择器入口始终可见
 
 - 去掉“只在研究面板显示”的可见性门控：此前选择器可能因面板类名判断失败而整块 display:none，
@@ -275,3 +295,35 @@ ode --check + 全套 168/168。
 - 03 矩阵阶段二按实际证据更新：SW-01/02/03/04/05/06/08/11/12 通过，SW-07/09/10 标注部分；
 - 五个插件 README 版本与 package 对齐（core 1.6.0、study-ops 0.3.2、scale 0.3.2、demographic 1.2.1、analysis 0.5.2）；
 - research-core package.files 补入 client-study-picker.mjs 与同步脚本。
+
+## 2026-11-15 · debug 复核与收尾（代码回归完成，GUI验收未完成）
+
+- 分析数据：恢复唯一、从未裁决正常提交的有效分数读取；撤销显式裁决保留 revoked/version，旧分数必须匹配当前 observation/版本；补充单提交撤销与重算边界回归。
+- 日期：只以真实日精度建立随访锚点，年月/年份保留精度，不再合成15号/7月1日；非法日期和非法 today 有界处理。
+- 自动分析：排除名单按唯一排序ID比较/哈希，兼容旧 excludedIds 和 auto-state 缺失；pendingChanges 使用同一规则。
+- 引擎 2.6.0：模块级 analysisSet 区分描述统计、样本特征、完整配对和多量表信度；文本报告读取节点 analysisSet。修复 CSV fixture 的字面换行。
+- 选择器：人口学 createStudy 动作适配；多配置错误项保留列表、重定位释放busy；open/close路径加入互斥和timer清理（实际GUI仍需核对）。
+- 测试：定向43/43通过；E2E-05单项通过；量表28/28与Host smoke通过。此轮最终核心全量已完成，结果见后续收尾条目：262项，261通过、0失败、1按约定跳过。
+- 范围：未读写真实研究数据，未改profile；定时和gateway排除。
+
+## 2026-11-15 · debug 客户端接入第二轮
+
+- 继续复核发现选择器与量表连接参数、人口学创建payload不一致；量表兼容studyPath/path，人口学接受名称/位置创建，保留旧完整definition入口。
+- 分析页修复结果身份比较：不再把三字段研究身份与包含实例和数据源的全局key比较，避免反复reload。
+- 选择器名称和高级路径持久在本实例状态；输入后选目录/错误重绘不丢内容；Enter可提交。
+- 多配置错误与返回保留可恢复列表/状态；open/close统一互斥、清理timer与pagehide监听、焦点返回；下一步接入四客户端身份请求与切换后刷新。
+- 核心全量串行236项：235通过、0失败、1按约定跳过提醒/gateway；本条之后客户端改动需再做关联验证。
+
+## 2026-11-15 · 身份请求与刷新收尾
+
+- 四入口接入各自请求ticket与响应绑定校验；显式切换推进同一window的绑定epoch，兄弟插件旧响应被拒绝，其他标签不传播绑定变化。新增隔离回归覆盖此边界。
+- 切换后调用各面板的现有load函数；人口学有未保存数据或保存中时阻止切换，避免已切绑定却保留旧数据的二次确认问题。分析方案有草稿先确认，按研究保留；运行台写入中禁用切换。
+- 量表将studyChoices/studyDiscover加入只读动作，过期绑定时仍可使用选择器恢复。
+- 更正排错归因：原E2E-05夹具已恢复（不添加groups.sex），在修正正常单份评分读取后仍通过。此前“缺groups导致失败”的判断无依据；不得用改夹具掩盖评分回归。
+- 关联测试20/20通过；原E2E-05 1/1通过。新增 picker-interaction.mjs：真实共享选择器 VM 交互覆盖25项，四插件 Host connect/create 路由8项全部通过；首轮DOM假实现差异已按原生append语义修正，最终25/25通过，不能冒充浏览器视觉验收。
+- 追加发现并修复：唯一 revoked observation 不再由 effectiveFor 返回 complete，随访完成计算明确排除 revoked；聚焦 flow/analysis/picker/identity 回归最终 66/66 通过。
+- picker-interaction 最终 25/25 通过，含 8 项四插件真实 Host 路由；无浏览器视觉截图，不将 VM DOM 结果算实机 GUI。
+- 最终核心全量（含picker/身份/流程修复）262项：261通过、0失败、1按约定跳过官方gateway提醒/手机状态；后续未再修改核心逻辑。
+- 全量后加强共享段断言：去掉生成脚本不保留的region标记后比较正文，11/11关联测试通过，未放宽实际实现一致性要求。
+- 量表28/28与Host smoke通过；分析/人口学独立目录0 tests不计为通过套件。所有本轮后台作业已收集，浏览器会话与自行启动的daemon已结束。
+- 最终证据分层：矩阵SW-07/10保留部分，SW-08/09仅自动化通过；当前GUI鉴权页无法验证正常界面，未确认部署/内存重载。统计多量表门槛、旧日期兼容、撤销后真实重算链路及命令式DOM残留等限制详见工作区04-debug复核结果-20261115.md；本轮不是全面上线认证。
